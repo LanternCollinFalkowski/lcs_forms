@@ -1,0 +1,703 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-heading: "Archivo", system-ui, sans-serif;
+  --font-body: "Archivo", system-ui, sans-serif;
+  --teal: #2f8f7f;
+  --c-brand: 44 52 83;
+  --c-brand-600: 35 41 69;
+  --c-brand-700: 26 32 56;
+
+  /* Theme-aware tokens (RGB triplets so Tailwind opacity modifiers work). */
+  --c-appbg: 233 237 242;
+  --c-surface: 255 255 255;
+  --c-sidebar: 251 252 253;
+  --c-ink: 35 42 58;
+  --c-muted: 106 113 137;
+  --c-hairline: 226 230 238;
+  --c-divider: 221 226 234;
+  --c-rowhover: 246 248 251;
+  --c-navsel: 219 224 235; /* active nav item background — reads against the gray sidebar */
+
+  /* Subtle surface fills / borders used inline across screens (icon circles,
+     drop zones, readonly inputs). Tokenized so dark mode recolors them. */
+  --c-subtle: 241 244 249;    /* light gray fill (was #f4f6f9 / #f8fafc / #f3f5fa) */
+  --c-subtle2: 238 241 246;   /* slightly cooler fill (was #eef1f6 / #eef1f5) */
+  --c-strongline: 195 205 222;/* stronger border (was #c3cdde / #b9c2d3) */
+
+  /* Accent for links / interactive text. Navy in light, lightened in dark so
+     it stays readable on dark surfaces (bg-navy buttons keep the fixed navy). */
+  --c-accent: 44 52 83;
+
+  /* Semantic status palette (bg / text / dot per hue). */
+  --st-amber-bg: 251 238 207;  --st-amber-text: 138 90 17;   --st-amber-dot: 217 147 39;
+  --st-blue-bg: 227 236 247;   --st-blue-text: 47 77 122;    --st-blue-dot: 74 114 173;
+  --st-violet-bg: 236 233 246; --st-violet-text: 88 74 134;  --st-violet-dot: 122 104 184;
+  --st-green-bg: 226 239 231;  --st-green-text: 47 107 66;   --st-green-dot: 78 156 107;
+  --st-red-bg: 251 232 229;    --st-red-text: 165 55 42;     --st-red-dot: 207 90 72;
+  --st-neutral-bg: 236 239 244; --st-neutral-text: 82 90 110;
+
+  /* Teal (AI accent). */
+  --c-teal: 47 143 127;  --c-teal-tint: 238 247 244;  --c-teal-tintborder: 207 230 223;
+
+  /* AI banner + aging chips. */
+  --c-aibanner-bg: 253 246 231;  --c-aibanner-border: 240 224 184;  --c-aibanner-text: 109 85 29;
+  --c-aging-bg: 247 230 216;     --c-aging-border: 207 122 58;      --c-aging-text: 156 90 38;
+
+  /* ── Chart tokens ──────────────────────────────────────────
+     Validated with the dataviz palette validator against this mode's surface
+     (#fff light / #171d2b dark): lightness band, chroma floor, all-pairs CVD
+     separation, normal-vision floor, and contrast. Dark is a separately chosen
+     set of steps, not a lightened flip — do not hand-tweak these without
+     re-running the validator.
+
+     Categorical: 3 slots, FIXED order (identity — action groups). Five and four
+     hues both failed all-pairs CVD (blue/violet collapse under deuteranopia),
+     so extra dimensions are faceted as small multiples instead. */
+  --chart-cat-1: #0f72b5;
+  --chart-cat-2: #c4801a;
+  --chart-cat-3: #12855f;
+
+  /* Sequential: one hue, light→dark, lightness-monotonic. Magnitude only
+     (heatmap cells) — never as a value-ramp across nominal categories. */
+  --chart-seq-0: #eaf1f8;
+  --chart-seq-1: #c5daec;
+  --chart-seq-2: #93bcdc;
+  --chart-seq-3: #5b96c7;
+  --chart-seq-4: #2c6fa8;
+  --chart-seq-5: #17456b;
+
+  /* Chrome: hairline grid one step off the surface, and the empty-cell fill. */
+  --chart-grid: 226 231 240;
+  --chart-empty: 244 246 250;
+
+  /* Phone safe areas, behind a variable rather than read straight out of
+     `env()` at each use. Two reasons: a device frame that is not the real
+     device (the phone preview harness) can say what the insets are, and the
+     values become inspectable instead of resolving to 0 with nothing to show
+     for it. The `env()` default means a real iPhone still wins. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Breathing room under the phone tab bar even when the browser reports no
+     inset (Safari with its toolbar showing, Android gesture bars). On an iPhone
+     that reports the home-indicator inset, the larger of the two wins. */
+  --tabbar-bottom: max(20px, calc(8px + var(--safe-bottom)));
+}
+
+.dark {
+  --c-appbg: 8 8 8;
+  --c-surface: 15 15 15;
+  --c-sidebar: 5 5 5;
+  --c-ink: 242 242 242;
+  --c-muted: 166 166 166;
+  --c-hairline: 46 46 46;
+  --c-divider: 53 53 53;
+  --c-rowhover: 29 29 29;
+  --c-navsel: 40 40 40;
+
+  --c-subtle: 28 28 28;
+  --c-subtle2: 35 35 35;
+  --c-strongline: 70 70 70;
+
+  --c-accent: 188 207 255;
+
+  /* Muted, low-luminance status fills so nothing glares; text lightened per hue. */
+  --st-amber-bg: 58 47 22;    --st-amber-text: 232 192 121; --st-amber-dot: 217 147 39;
+  --st-blue-bg: 28 39 64;     --st-blue-text: 169 196 232;  --st-blue-dot: 90 130 189;
+  --st-violet-bg: 42 37 69;   --st-violet-text: 195 182 232; --st-violet-dot: 146 128 200;
+  --st-green-bg: 22 48 31;    --st-green-text: 143 208 165; --st-green-dot: 95 175 123;
+  --st-red-bg: 58 32 28;      --st-red-text: 232 155 143;   --st-red-dot: 217 112 94;
+  --st-neutral-bg: 42 49 69;  --st-neutral-text: 170 178 196;
+
+  --c-teal: 87 182 166;  --c-teal-tint: 22 48 43;  --c-teal-tintborder: 47 91 82;
+
+  --c-aibanner-bg: 46 42 26;  --c-aibanner-border: 74 67 38;  --c-aibanner-text: 221 201 138;
+  --c-aging-bg: 51 38 28;     --c-aging-border: 122 74 42;    --c-aging-text: 217 154 106;
+
+  /* Chart tokens — dark steps, validated against the dark surface (#171d2b).
+     Note these are NOT lighter than their light-mode counterparts: the dark
+     lightness band (L 0.48–0.67) is tighter and sits lower than light's. */
+  --chart-cat-1: #4593d2;
+  --chart-cat-2: #bc8420;
+  --chart-cat-3: #1c9b74;
+
+  /* Sequential runs dark→light on a dark surface so "more" is still "stronger". */
+  --chart-seq-0: #1b2740;
+  --chart-seq-1: #21395c;
+  --chart-seq-2: #2a5180;
+  --chart-seq-3: #366fa6;
+  --chart-seq-4: #4a93cc;
+  --chart-seq-5: #6fb2e0;
+
+  --chart-grid: 42 51 70;
+  --chart-empty: 26 32 47;
+}
+
+/* App themes alter the navigation chrome, selection states, and primary
+   interactive color. Avatar colors remain personal and never read these tokens. */
+html:not(.dark)[data-theme="ocean"] {
+  --c-brand: 14 116 144; --c-brand-600: 12 94 117; --c-brand-700: 10 75 93;
+  --c-sidebar: 239 249 252; --c-navsel: 202 232 241; --c-rowhover: 242 250 253; --c-accent: 14 116 144;
+}
+html:not(.dark)[data-theme="plum"] {
+  --c-brand: 109 40 115; --c-brand-600: 88 32 93; --c-brand-700: 68 25 72;
+  --c-sidebar: 251 247 252; --c-navsel: 237 220 240; --c-rowhover: 253 249 253; --c-accent: 109 40 115;
+}
+html:not(.dark)[data-theme="forest"] {
+  --c-brand: 22 101 52; --c-brand-600: 18 81 42; --c-brand-700: 14 62 32;
+  --c-sidebar: 245 250 246; --c-navsel: 215 235 219; --c-rowhover: 248 252 248; --c-accent: 22 101 52;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: rgb(var(--c-appbg));
+  color: rgb(var(--c-ink));
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--c-brand));
+  outline-offset: 0;
+}
+
+.kicker {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgb(var(--c-muted));
+}
+
+/* Teal AI tint — dormant unless a field actually carries an AI flag. */
+.ln-ai {
+  background: #eef7f4;
+  border-color: #cfe6df !important;
+}
+.dark .ln-ai {
+  background: rgba(47, 143, 127, 0.14);
+  border-color: rgba(47, 143, 127, 0.4) !important;
+}
+
+.scroll-thin::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: rgb(var(--c-divider));
+  border-radius: 100px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Approval-rule sorting: destination and settled cards briefly animate so the
+   reordered path is clear without creating distracting continuous motion. */
+.approval-rule-card {
+  will-change: transform;
+}
+
+.approval-process-person {
+  will-change: transform;
+}
+
+.rule-drop-zone__line {
+  height: 3px;
+  background: rgb(var(--c-accent));
+  box-shadow: 0 0 0 3px rgb(var(--c-accent) / 0.14);
+}
+
+.person-drop-guide__line {
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgb(var(--c-accent));
+  box-shadow: 0 0 0 3px rgb(var(--c-accent) / 0.14);
+}
+
+/* Dashboard customization mirrors approval-rule sorting: the full widget
+   glides to its new grid position and a bright guide marks the insertion gap. */
+.dashboard-widget {
+  will-change: transform;
+}
+
+/* Keep route-entry motion on an inner layer so the outer widget remains free
+   for FLIP transforms while cards are being rearranged in the editor. */
+@keyframes dashboard-widget-enter {
+  0% { opacity: 0; transform: translateY(18px) scale(0.965); }
+  62% { opacity: 1; transform: translateY(-2px) scale(1.008); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.dashboard-widget-enter {
+  animation: dashboard-widget-enter 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: 50% 40%;
+  will-change: transform, opacity;
+}
+
+/* Transactional lists use quieter motion than the dashboard widgets. */
+@keyframes page-list-item-enter {
+  from { opacity: 0; transform: translateY(9px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.page-list-item-enter {
+  animation: page-list-item-enter 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity;
+}
+
+/* A batch of bills just loaded into a ledger group.
+
+   These rows arrive already tinted, hold for a beat, then settle back to the
+   ordinary row — so the block that is new announces itself without anything
+   sliding or fading in. Nothing moves: rows below the insertion point are only
+   pushed down, which is the one thing appending is supposed to guarantee.
+
+   `backwards` fill, deliberately, not `both`: it covers the stagger delay so
+   every row in the batch starts lit, but leaves nothing behind afterwards. With
+   `both` the transparent end state would stick and permanently defeat :hover. */
+@keyframes bill-row-appended {
+  0%, 45% {
+    background-color: rgb(var(--c-navsel));
+    box-shadow: inset 3px 0 0 rgb(var(--c-accent));
+  }
+  100% {
+    /* Fading to `rgb(… / 0)` rather than `transparent` keeps the hue constant;
+       `transparent` is rgba(0,0,0,0), so it would wash through grey on the way
+       out — visible against a light row. */
+    background-color: rgb(var(--c-navsel) / 0);
+    box-shadow: inset 3px 0 0 rgb(var(--c-accent) / 0);
+  }
+}
+
+.bill-row-appended {
+  /* Linear, not the easing the moving animations use: the hold and the fade are
+     already shaped by the keyframes, and an ease-out curve on top collapses the
+     whole fade into its first fifth and then sits at zero alpha for half a
+     second. Even timing gives the full 0.7s of fade it looks like it has. */
+  animation: bill-row-appended 1300ms linear backwards;
+}
+
+/* Bill list: paint the shell immediately, then let real data replace animated
+   ledger-shaped placeholders. Data latency never blocks the route entrance. */
+@keyframes bill-list-stage-enter {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.bill-list-stage {
+  animation: bill-list-stage-enter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity;
+}
+
+/* Bills list filter rail: closed by default, and collapsed rather than
+   unmounted so it can animate out and so the Filters button's aria-controls
+   always points at a real element.
+
+   Width is the animated property, not a transform: the rail is a flex sibling
+   of the ledger, so sliding it would leave a gap where it used to be. Animating
+   width lets the ledger widen in step with it. The rail's own fixed 264px keeps
+   its contents from reflowing as the wrapper closes. */
+.bill-filter-rail {
+  display: flex;
+  min-height: 0;
+  flex: 0 0 auto;
+  width: 264px;
+  overflow: hidden;
+  transition:
+    width 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.bill-filter-rail[data-open="false"] {
+  width: 0;
+  opacity: 0;
+}
+
+/* On a phone the rail has nowhere to sit — the ledger already owns the full
+   402px. The same filters render into a bottom sheet instead (see the phone
+   branch in InvoiceQueue), so the rail is out of the layout entirely rather
+   than collapsed to zero width beside it. */
+@media (max-width: 767px) {
+  .bill-filter-rail {
+    display: none;
+  }
+}
+
+@keyframes bill-skeleton-shimmer {
+  0% { background-position: 180% 0; }
+  100% { background-position: -80% 0; }
+}
+
+.bill-skeleton-shimmer,
+.bill-count-loading {
+  background: linear-gradient(100deg, rgb(var(--c-subtle)) 18%, rgb(var(--c-divider)) 42%, rgb(var(--c-subtle)) 66%);
+  background-size: 240% 100%;
+  animation: bill-skeleton-shimmer 1.25s ease-in-out infinite;
+}
+
+.bill-count-loading {
+  display: inline-block;
+  flex: none;
+}
+
+@keyframes bill-skeleton-group-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.bill-skeleton-group {
+  animation: bill-skeleton-group-enter 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes bill-count-reveal {
+  from { opacity: 0; transform: translateY(3px) scale(0.92); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.bill-count-reveal {
+  animation: bill-count-reveal 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Approval decisions happen in two readable beats: the acted-on card confirms
+   the result, then the surviving cards glide into the space it leaves. */
+.approval-inbox-card {
+  will-change: transform;
+}
+
+.approval-inbox-card--decided .approval-inbox-card__content {
+  animation: approval-card-content-out 680ms ease both;
+}
+
+.approval-decision {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 7px;
+  pointer-events: none;
+  animation: approval-decision-overlay 680ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.approval-decision--approved {
+  color: rgb(var(--st-green-text));
+  background: rgb(var(--st-green-bg) / 0.96);
+}
+
+.approval-decision--rejected {
+  color: rgb(var(--st-red-text));
+  background: rgb(var(--st-red-bg) / 0.96);
+}
+
+.approval-decision__icon {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border: 3px solid currentColor;
+  border-radius: 999px;
+  animation: approval-decision-icon-pop 680ms cubic-bezier(0.2, 1.35, 0.3, 1) both;
+}
+
+.approval-decision__icon svg {
+  width: 34px;
+  height: 34px;
+  stroke-width: 3;
+}
+
+.approval-decision__icon svg path,
+.approval-decision__icon svg line,
+.approval-decision__icon svg polyline {
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: approval-decision-stroke 360ms 90ms ease-out forwards;
+}
+
+.approval-decision__label {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+@keyframes approval-card-content-out {
+  0%, 55% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0.08; transform: scale(0.985); }
+}
+
+@keyframes approval-decision-overlay {
+  0% { opacity: 0; transform: scale(0.985); }
+  18%, 72% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.985); }
+}
+
+@keyframes approval-decision-icon-pop {
+  0% { opacity: 0; transform: scale(0.45) rotate(-8deg); }
+  28%, 72% { opacity: 1; transform: scale(1) rotate(0); }
+  100% { opacity: 0; transform: scale(0.92); }
+}
+
+@keyframes approval-decision-stroke {
+  to { stroke-dashoffset: 0; }
+}
+
+.dashboard-canvas-motion {
+  transition: transform 300ms cubic-bezier(0.2, 0.9, 0.25, 1);
+  will-change: transform;
+}
+
+@keyframes dashboard-palette-open {
+  from { transform: translateX(100%); opacity: 0.72; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.dashboard-palette {
+  animation: dashboard-palette-open 300ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+@keyframes dashboard-drop-target-in {
+  from { transform: scale(0.985); opacity: 0.45; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.dashboard-drop-placeholder {
+  animation: dashboard-drop-target-in 120ms ease-out both;
+}
+
+/* ── Phone chrome ─────────────────────────────────────────
+   Bottom sheets rise from the edge they are anchored to, which is the one
+   piece of motion that tells you a sheet is a sheet and not a dialog that
+   happened to land low. */
+@keyframes sheet-rise {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes sheet-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.sheet-panel[data-state="open"] {
+  animation: sheet-rise 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.sheet-overlay[data-state="open"] {
+  animation: sheet-overlay-in 200ms ease-out both;
+}
+
+/* Touch surfaces have no scrollbar to leave room for, and `.scroll-thin`'s
+   10px gutter is 2.5% of a 402px screen spent on chrome that never appears.
+   The design's own device frame hides them for the same reason. */
+@media (max-width: 767px) {
+  .scroll-thin {
+    scrollbar-width: none;
+  }
+  .scroll-thin::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+}
+
+/* A horizontal chip row on a phone scrolls under the thumb rather than
+   wrapping to three lines. The scrollbar itself is chrome nobody needs on a
+   touch surface, and its 10px gutter would push the chips off centre.
+
+   Media-scoped rather than paired with `md:overflow-visible` on each user:
+   this file is loaded after `@tailwind utilities`, so a bare `.chiprow` would
+   beat the utility that was meant to turn it off. */
+@media (max-width: 767px) {
+  .chiprow {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .chiprow::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Somebody else's pointer, relayed onto the bill screen.
+
+   Positions arrive about sixteen times a second, so a continuous move is a jump
+   of a few pixels each time and the glide only has to cover the gap between two
+   samples. A move between two regions — the document into the form, say — can be
+   several hundred pixels on a differently shaped monitor, and needs long enough
+   to read as travel rather than a teleport. So the duration is *not* set here:
+   PresenceCursors sets it per update from the distance actually covered.
+
+   Linear on purpose. An easing curve would make every one of sixteen samples a
+   second decelerate to a stop, which reads as hesitation rather than travel.
+
+   Opacity is in the transition too: a pointer whose owner has scrolled it out
+   of their pane fades rather than vanishing, and fades back when it returns. */
+.presence-cursor {
+  transition-property: transform, opacity;
+  transition-timing-function: linear;
+  transition-duration: 90ms;
+  will-change: transform;
+}
+
+/* A field somebody else is holding. The ring itself is drawn inline — it is
+   their own colour — and this only breathes it, so a held field is
+   distinguishable from the static rings the form draws for AI tints and errors.
+
+   `filter` rather than animating the box-shadow: the shadow carries the colour
+   and re-declaring it here would need a second copy of the hex. */
+@keyframes presence-field-ring {
+  0%, 100% { filter: saturate(1) brightness(1); opacity: 1; }
+  50% { filter: saturate(1.15) brightness(1.08); opacity: 0.82; }
+}
+
+.presence-field-ring {
+  animation: presence-field-ring 1900ms ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-panel[data-state="open"],
+  .sheet-overlay[data-state="open"] { animation: none; }
+  .approval-rule-card,
+  .approval-process-person,
+  .approval-inbox-card,
+  .dashboard-widget,
+  .dashboard-widget-enter,
+  .page-list-item-enter,
+  .bill-list-stage,
+  .bill-skeleton-group,
+  .bill-count-reveal,
+  .dashboard-canvas-motion { will-change: auto; }
+  .dashboard-canvas-motion,
+  /* The rail still collapses — it just arrives at its end state at once. */
+  .bill-filter-rail { transition: none; }
+  .dashboard-palette,
+  .dashboard-drop-placeholder,
+  .dashboard-widget-enter,
+  .page-list-item-enter,
+  .bill-list-stage,
+  .bill-skeleton-group,
+  .bill-count-reveal,
+  .bill-skeleton-shimmer,
+  .bill-count-loading,
+  .approval-inbox-card--decided .approval-inbox-card__content,
+  .approval-decision,
+  .approval-decision__icon,
+  .approval-decision__icon svg path,
+  .approval-decision__icon svg line,
+  .approval-decision__icon svg polyline { animation: none; }
+  /* The arrival highlight stays. It is a colour fade with nothing moving, and
+     it is the only thing telling you which rows just loaded — silencing it
+     would remove information rather than motion. The stagger does read as
+     travel across the batch, so that goes: the whole block fades as one.
+     `!important` because the per-row delay is set inline. */
+  .bill-row-appended { animation-delay: 0ms !important; }
+  /* A relayed pointer still moves — that is the whole content of it — but it
+     jumps between samples instead of gliding, and the ring around a held field
+     stops breathing. Both keep every bit of their information.
+
+     `!important` on the duration because PresenceCursors sets it inline, per
+     move, from the distance covered; an inline value would otherwise beat a
+     plain rule here and go on animating for somebody who asked it not to. */
+  .presence-cursor { transition-duration: 0ms !important; }
+  .presence-field-ring { animation: none; }
+}
+
+/*
+ * Full-height app shell. 100vh on iOS Safari is the height with the toolbar
+ * hidden, so a 100vh layout runs underneath the toolbar and the home indicator
+ * and the bottom tab bar ends up there. 100dvh is the height actually visible;
+ * 100vh stays as the fallback for browsers without dynamic units.
+ */
+.app-height {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/*
+ * Roster rows skip layout and paint while off screen. The list is built in
+ * batches (see Roster.tsx), and without this each batch made the browser
+ * re-lay-out every row already there — hundreds of off-screen rows per frame.
+ * The intrinsic size is the row's real height, so the scrollbar stays honest
+ * and nothing jumps as rows come into view ("auto" remembers the measured size).
+ */
+.roster-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 57px;
+}
+@media (min-width: 1024px) {
+  .roster-row { contain-intrinsic-size: auto 49px; }
+}
+
+/* Swipe decks (Review, roll call). The deck is a size container so a card
+   squeezed onto a short phone screen tightens itself — smaller avatar, less
+   air — instead of letting its contents run past the card's bottom edge. At
+   its full 392px nothing here applies. */
+.swipe-deck { container-type: size; }
+@container (max-height: 340px) {
+  .swipe-deck .swipe-card-body { padding-top: 2rem; padding-bottom: 0.75rem; }
+  .swipe-deck .swipe-avatar { zoom: 0.8; }
+  .swipe-deck .swipe-name { margin-top: 0.5rem; font-size: 21px; }
+  .swipe-deck .swipe-note { margin-top: 0.75rem; }
+}
+
+/* ── Chart palette (Reports) ──────────────────────────────────────────────
+   Validated with the dataviz skill's validate_palette.js against this app's
+   surfaces (#ffffff light, #0f0f0f dark): every check passes in both modes.
+   --viz-1…8  categorical, in this fixed order: a meal type's slot comes from
+              its place in Manage meal types, never from its rank, so a color
+              always means the same meal. Slots 1-5 feed meal types.
+   --viz-site-*  site type (slots 7 and 6), kept apart from the meal-type slots
+              so one colour never means two things on the same page.
+   --viz-seq-1…7 sequential blue (heat grid), light→dark; dark mode flips the
+              anchor so "hardly any" recedes into the dark surface.
+   Do not eyeball new values: re-run the validator. */
+:root {
+  --viz-1: #2a78d6; --viz-2: #eb6834; --viz-3: #1baf7a; --viz-4: #eda100;
+  --viz-5: #e87ba4; --viz-6: #008300; --viz-7: #4a3aa7; --viz-8: #e34948;
+  --viz-other: #898781;
+  --viz-site-supportive: #4a3aa7; --viz-site-shelter: #008300; --viz-site-other: #898781;
+  --viz-seq-1: #cde2fb; --viz-seq-2: #9ec5f4; --viz-seq-3: #6da7ec; --viz-seq-4: #3987e5;
+  --viz-seq-5: #256abf; --viz-seq-6: #184f95; --viz-seq-7: #0d366b;
+  --viz-seq-0: #f1f4f9;
+}
+.dark {
+  --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500;
+  --viz-5: #d55181; --viz-6: #008300; --viz-7: #9085e9; --viz-8: #e66767;
+  --viz-site-supportive: #9085e9; --viz-site-shelter: #008300;
+  --viz-seq-1: #0d366b; --viz-seq-2: #104281; --viz-seq-3: #1c5cab; --viz-seq-4: #2a78d6;
+  --viz-seq-5: #5598e7; --viz-seq-6: #86b6ef; --viz-seq-7: #b7d3f6;
+  --viz-seq-0: #1c1c1c;
+}

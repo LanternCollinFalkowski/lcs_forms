@@ -1,0 +1,376 @@
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { ArrowDown, ArrowUp, ExternalLink, EyeOff, Lock, Pencil, Plus, Trash2 } from "lucide-react";
+import { Page, PageHeader } from "@/components/shell/AppShell";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader } from "@/components/ui/dialog";
+import { Input, Textarea } from "@/components/ui/input";
+import { Field } from "@/components/ui/label";
+import { EmptyState, LoadingState } from "@/components/ui/misc";
+import { Select } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/components/ui/toast";
+import { ApiError } from "@/lib/api";
+import { FORM_ICONS, formIcon, isInternalForm, type FormIconKey } from "@/lib/formIcons";
+import { formsApi, useForms, useRoles } from "@/lib/queries";
+import type { FormCategory, FormLink } from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+type FormDraft = {
+  id?: string;
+  categoryId: string;
+  title: string;
+  description: string;
+  url: string;
+  keywords: string;
+  badge: string;
+  active: boolean;
+  /** Role keys that may see it; empty = everyone. */
+  roles: string[];
+};
+type CategoryDraft = { id?: string; name: string; icon: FormIconKey };
+type Pending = { kind: "form"; form: FormLink } | { kind: "category"; category: FormCategory };
+
+/**
+ * What staff see on the Forms screen. Every change is live for everyone as
+ * soon as it saves, and each one lands in the Activity log.
+ */
+export function AdminFormsCatalog() {
+  const { data, isLoading } = useForms(true);
+  const { data: allRoles } = useRoles();
+  // Admins see every form regardless, so they aren't offered as a choice.
+  const limitable = (allRoles ?? []).filter((r) => r.key !== "admin");
+  const roleNames = (keys: string[]) => keys.map((k) => allRoles?.find((r) => r.key === k)?.name ?? k).join(", ");
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [form, setForm] = useState<FormDraft | null>(null);
+  const [category, setCategory] = useState<CategoryDraft | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [busy, setBusy] = useState(false);
+  const categories = data?.categories ?? [];
+
+  async function run(fn: () => Promise<unknown>, done?: string) {
+    setBusy(true);
+    try {
+      await fn();
+      await qc.invalidateQueries({ queryKey: ["forms"] });
+      if (done) toast(done);
+      return true;
+    } catch (e) {
+      toast(messageOf(e), "error");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function moveCategory(index: number, by: -1 | 1) {
+    const ids = categories.map((c) => c.id);
+    [ids[index], ids[index + by]] = [ids[index + by], ids[index]];
+    void run(() => formsApi.reorderCategories(ids));
+  }
+
+  function moveForm(cat: FormCategory, index: number, by: -1 | 1) {
+    const ids = cat.forms.map((f) => f.id);
+    [ids[index], ids[index + by]] = [ids[index + by], ids[index]];
+    void run(() => formsApi.reorder(cat.id, ids));
+  }
+
+  async function saveForm() {
+    if (!form) return;
+    const body = {
+      categoryId: form.categoryId,
+      title: form.title,
+      description: form.description,
+      url: form.url,
+      keywords: form.keywords,
+      badge: form.badge,
+      active: form.active,
+      roles: form.roles,
+    };
+    const ok = await run(
+      () => (form.id ? formsApi.update(form.id, body) : formsApi.create(body)),
+      form.id ? "Form saved." : "Form added."
+    );
+    if (ok) setForm(null);
+  }
+
+  async function saveCategory() {
+    if (!category) return;
+    const body = { name: category.name, icon: category.icon };
+    const ok = await run(
+      () => (category.id ? formsApi.updateCategory(category.id, body) : formsApi.createCategory(body)),
+      category.id ? "Category saved." : "Category added."
+    );
+    if (ok) setCategory(null);
+  }
+
+  async function confirmDelete() {
+    if (!pending) return;
+    const ok =
+      pending.kind === "form"
+        ? await run(() => formsApi.remove(pending.form.id), `Deleted “${pending.form.title}”.`)
+        : await run(() => formsApi.removeCategory(pending.category.id), `Deleted “${pending.category.name}”.`);
+    if (ok) setPending(null);
+  }
+
+  const newForm = (categoryId: string) =>
+    setForm({ categoryId, title: "", description: "", url: "https://forms.lanterncommunity.org/", keywords: "", badge: "", active: true, roles: [] });
+
+  if (isLoading) return <LoadingState />;
+
+  return (
+    <Page className="max-w-[960px]">
+      <PageHeader
+        title="Forms catalog"
+        subtitle="What staff see on the Forms screen. Changes are live for everyone as soon as they save."
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => setCategory({ name: "", icon: "folder" })}>
+              <Plus className="h-4 w-4" /> Category
+            </Button>
+            <Button onClick={() => newForm(categories[0]?.id ?? "")} disabled={categories.length === 0}>
+              <Plus className="h-4 w-4" /> Add form
+            </Button>
+          </>
+        }
+      />
+
+      {categories.length === 0 && <EmptyState title="No categories yet" hint="Add a category first, then put forms in it." />}
+
+      <div className="space-y-4">
+        {categories.map((cat, ci) => {
+          const Icon = formIcon(cat.icon);
+          return (
+            <Card key={cat.id} className="overflow-hidden">
+              <div className="flex items-center gap-2 border-b border-hairline bg-subtle/60 px-4 py-2.5">
+                <Icon className="h-4 w-4 shrink-0 text-muted" />
+                <p className="min-w-0 flex-1 truncate text-[14.5px] font-heading font-extrabold text-ink">
+                  {cat.name} <span className="ml-1 text-[12px] font-semibold text-muted tabular">{cat.forms.length}</span>
+                </p>
+                <IconButton label="Move category up" disabled={busy || ci === 0} onClick={() => moveCategory(ci, -1)}><ArrowUp className="h-4 w-4" /></IconButton>
+                <IconButton label="Move category down" disabled={busy || ci === categories.length - 1} onClick={() => moveCategory(ci, 1)}><ArrowDown className="h-4 w-4" /></IconButton>
+                <IconButton label="Rename category" onClick={() => setCategory({ id: cat.id, name: cat.name, icon: (cat.icon in FORM_ICONS ? cat.icon : "folder") as FormIconKey })}><Pencil className="h-4 w-4" /></IconButton>
+                <IconButton
+                  label={cat.forms.length ? "Move or delete its forms first" : "Delete category"}
+                  disabled={cat.forms.length > 0}
+                  onClick={() => setPending({ kind: "category", category: cat })}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </IconButton>
+              </div>
+
+              <ul>
+                {cat.forms.map((f, fi) => (
+                  <li key={f.id} className={cn("flex items-center gap-2 border-b border-hairline px-4 py-2.5 last:border-0", !f.active && "bg-subtle/40")}>
+                    <div className="min-w-0 flex-1">
+                      <p className={cn("flex flex-wrap items-center gap-x-2 text-[13.5px] font-semibold", f.active ? "text-ink" : "text-muted")}>
+                        {f.title}
+                        {f.badge && <span className="rounded-pill bg-status-amberBg px-2 py-px text-[10.5px] font-bold text-status-amberText">{f.badge}</span>}
+                        {!f.active && (
+                          <span className="inline-flex items-center gap-1 rounded-pill bg-subtle px-2 py-px text-[10.5px] font-bold text-muted">
+                            <EyeOff className="h-3 w-3" /> Hidden
+                          </span>
+                        )}
+                        {isInternalForm(f.url) && <span className="rounded-pill bg-navsel px-2 py-px text-[10.5px] font-bold text-accent dark:text-white">Built in</span>}
+                        {f.roles.length > 0 && (
+                          <span className="inline-flex items-center gap-1 rounded-pill bg-subtle px-2 py-px text-[10.5px] font-bold text-muted" title={`Only ${roleNames(f.roles)} (and Admins) can see this form`}>
+                            <Lock className="h-3 w-3" /> {roleNames(f.roles)}
+                          </span>
+                        )}
+                      </p>
+                      <a href={isInternalForm(f.url) ? undefined : f.url} target="_blank" rel="noopener noreferrer" className="mt-0.5 flex items-center gap-1 truncate text-micro text-muted hover:text-ink">
+                        <span className="truncate">{f.url}</span>
+                        {!isInternalForm(f.url) && <ExternalLink className="h-3 w-3 shrink-0" />}
+                      </a>
+                    </div>
+                    <Switch
+                      checked={f.active}
+                      disabled={busy}
+                      onCheckedChange={(active) => void run(() => formsApi.update(f.id, { active }), active ? `“${f.title}” is visible again.` : `“${f.title}” is hidden from staff.`)}
+                      aria-label={f.active ? `Hide ${f.title}` : `Show ${f.title}`}
+                      title={f.active ? "Visible to staff" : "Hidden from staff"}
+                    />
+                    <IconButton label="Move up" disabled={busy || fi === 0} onClick={() => moveForm(cat, fi, -1)}><ArrowUp className="h-4 w-4" /></IconButton>
+                    <IconButton label="Move down" disabled={busy || fi === cat.forms.length - 1} onClick={() => moveForm(cat, fi, 1)}><ArrowDown className="h-4 w-4" /></IconButton>
+                    <IconButton
+                      label="Edit form"
+                      onClick={() =>
+                        setForm({
+                          id: f.id,
+                          categoryId: f.categoryId,
+                          title: f.title,
+                          description: f.description ?? "",
+                          url: f.url,
+                          keywords: f.keywords ?? "",
+                          badge: f.badge ?? "",
+                          active: f.active,
+                          roles: f.roles,
+                        })
+                      }
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </IconButton>
+                    <IconButton label="Delete form" onClick={() => setPending({ kind: "form", form: f })}><Trash2 className="h-4 w-4" /></IconButton>
+                  </li>
+                ))}
+                <li>
+                  <button onClick={() => newForm(cat.id)} className="flex min-h-[40px] w-full items-center gap-2 px-4 text-[13px] font-semibold text-accent hover:bg-rowhover dark:text-white">
+                    <Plus className="h-4 w-4" /> Add a form to {cat.name}
+                  </button>
+                </li>
+              </ul>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* ── Form editor ─────────────────────────────────────────── */}
+      <Dialog open={form !== null} onOpenChange={(o) => !o && setForm(null)}>
+        <DialogContent>
+          <DialogHeader title={form?.id ? "Edit form" : "Add a form"} subtitle="Link to a form on WordPress, or to a screen in this app." />
+          {form && (
+            <form onSubmit={(e) => { e.preventDefault(); void saveForm(); }}>
+              <DialogBody className="max-h-[65vh] space-y-3.5 overflow-y-auto scroll-thin">
+                <Field label="Title">
+                  <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} maxLength={120} required autoFocus />
+                </Field>
+                <Field label="Link" hint="A full address such as https://forms.lanterncommunity.org/incident-reports/, or an app path such as /roster.">
+                  <Input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} maxLength={2000} required inputMode="url" />
+                </Field>
+                <Field label="Category">
+                  <Select value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })} options={categories.map((c) => ({ value: c.id, label: c.name }))} />
+                </Field>
+                <Field label="Description" hint="One short line under the title.">
+                  <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} maxLength={300} className="min-h-[64px]" />
+                </Field>
+                <Field label="Search words" hint="Other words people might search for, separated by commas (e.g. an old form name).">
+                  <Input value={form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} maxLength={255} />
+                </Field>
+                <Field label="Tag" hint="Optional. Shown on the card, e.g. “New” or “Password required”.">
+                  <Input value={form.badge} onChange={(e) => setForm({ ...form, badge: e.target.value })} maxLength={30} className="max-w-[220px]" />
+                </Field>
+                <Field
+                  label="Who can see it"
+                  hint={form.roles.length
+                    ? "Only these roles see the form, in the sidebar, on the Forms screen and in search. Admins always see every form."
+                    : "Everyone. Tick roles to limit it to just those; Admins always see every form."}
+                >
+                  <div className="grid grid-cols-1 gap-1 rounded-input border border-hairline p-2 sm:grid-cols-2">
+                    {limitable.map((r) => (
+                      <label key={r.key} className="flex min-h-[32px] items-center gap-2 text-[13px] text-ink">
+                        <input
+                          type="checkbox"
+                          checked={form.roles.includes(r.key)}
+                          onChange={(e) => setForm({ ...form, roles: e.target.checked ? [...form.roles, r.key] : form.roles.filter((k) => k !== r.key) })}
+                        />
+                        {r.name}
+                      </label>
+                    ))}
+                  </div>
+                </Field>
+                <label className="flex items-center gap-3 pt-1 text-[13.5px] text-ink">
+                  <Switch checked={form.active} onCheckedChange={(active) => setForm({ ...form, active })} />
+                  Visible to staff
+                </label>
+              </DialogBody>
+              <DialogFooter>
+                <Button type="button" variant="secondary" onClick={() => setForm(null)}>Cancel</Button>
+                <Button type="submit" disabled={busy || !form.title.trim() || !form.url.trim() || !form.categoryId}>
+                  {form.id ? "Save" : "Add form"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Category editor ─────────────────────────────────────── */}
+      <Dialog open={category !== null} onOpenChange={(o) => !o && setCategory(null)}>
+        <DialogContent className="w-[min(460px,calc(100vw-2rem))]">
+          <DialogHeader title={category?.id ? "Edit category" : "Add a category"} />
+          {category && (
+            <form onSubmit={(e) => { e.preventDefault(); void saveCategory(); }}>
+              <DialogBody className="space-y-4">
+                <Field label="Name">
+                  <Input value={category.name} onChange={(e) => setCategory({ ...category, name: e.target.value })} maxLength={80} required autoFocus />
+                </Field>
+                <Field label="Icon">
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {(Object.entries(FORM_ICONS) as [FormIconKey, (typeof FORM_ICONS)[FormIconKey]][]).map(([key, { label, Icon }]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        title={label}
+                        aria-label={label}
+                        aria-pressed={category.icon === key}
+                        onClick={() => setCategory({ ...category, icon: key })}
+                        className={cn(
+                          "flex h-10 items-center justify-center rounded-input border transition-colors",
+                          category.icon === key ? "border-navy bg-navsel text-accent dark:text-white" : "border-hairline text-muted hover:bg-rowhover hover:text-ink"
+                        )}
+                      >
+                        <Icon className="h-[18px] w-[18px]" />
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              </DialogBody>
+              <DialogFooter>
+                <Button type="button" variant="secondary" onClick={() => setCategory(null)}>Cancel</Button>
+                <Button type="submit" disabled={busy || !category.name.trim()}>{category.id ? "Save" : "Add category"}</Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete confirmation ─────────────────────────────────── */}
+      <Dialog open={pending !== null} onOpenChange={(o) => !o && setPending(null)}>
+        <DialogContent className="w-[min(440px,calc(100vw-2rem))]">
+          <DialogHeader
+            title={pending?.kind === "form" ? `Delete “${pending.form.title}”?` : pending ? `Delete “${pending.category.name}”?` : ""}
+            subtitle={
+              pending?.kind === "form"
+                ? "It disappears from everyone's Forms screen, favorites included. To take it down for now, hide it instead."
+                : "The category is empty, so nothing else changes."
+            }
+          />
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setPending(null)}>Cancel</Button>
+            <Button variant="danger" onClick={() => void confirmDelete()} disabled={busy}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Page>
+  );
+}
+
+/**
+ * A validation failure's own words ("Use a full https:// link…") rather than
+ * the generic "Validation failed" the API puts on top of them.
+ */
+function messageOf(e: unknown): string {
+  if (e instanceof ApiError) {
+    const d = e.details as { formErrors?: string[]; fieldErrors?: Record<string, string[] | undefined> } | undefined;
+    const first = d?.formErrors?.[0] ?? Object.values(d?.fieldErrors ?? {}).flat()[0];
+    if (first) return first;
+  }
+  return e instanceof Error ? e.message : "Could not save.";
+}
+
+function IconButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-input text-muted hover:bg-rowhover hover:text-ink disabled:pointer-events-none disabled:opacity-35"
+    >
+      {children}
+    </button>
+  );
+}

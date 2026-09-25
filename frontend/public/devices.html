@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device preview</title>
+<link rel="icon" href="/lcs_logo_color.svg" />
+<!--
+  Dev tool: the running app in an iPad and an iPhone frame, side by side.
+  Open http://localhost:5200/devices.html. Both frames are the real app on the
+  same origin, so they share your sign-in; each one's width drives the app's
+  own phone/tablet breakpoints exactly as a device would.
+-->
+<style>
+  :root {
+    --bg: #e9edf2; --panel: #ffffff; --ink: #232a3a; --muted: #6a7189; --line: #e2e6ee;
+    --bezel: #1b1f27; --accent: #2c3453;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #0b0d12; --panel: #151922; --ink: #eef0f4; --muted: #9aa1b3; --line: #2a303c; --bezel: #000; --accent: #bccfff; }
+  }
+  :root[data-theme="dark"] { --bg: #0b0d12; --panel: #151922; --ink: #eef0f4; --muted: #9aa1b3; --line: #2a303c; --bezel: #000; --accent: #bccfff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--ink); font: 13px/1.4 Archivo, system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden; }
+
+  header { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header strong { font-size: 14px; margin-right: 6px; }
+  form { display: flex; gap: 6px; flex: 1 1 280px; min-width: 0; }
+  input[type="text"] { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
+  button, select { height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .chips button { height: 28px; padding: 0 9px; font-size: 12px; }
+
+  main { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; gap: 40px; padding: 20px; overflow: auto; }
+  .device { display: flex; flex-direction: column; align-items: center; gap: 10px; flex: none; }
+  .label { color: var(--muted); font-size: 12px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+  .label button { height: 24px; padding: 0 8px; font-size: 11.5px; }
+  /* The frame is laid out at true device size, then scaled to fit. */
+  .shell { position: relative; }
+  .bezel { position: absolute; top: 0; left: 0; transform-origin: top left; background: var(--bezel); box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+  .bezel iframe { display: block; border: 0; background: #fff; }
+  .phone .bezel { padding: 14px; border-radius: 58px; }
+  /* Screen = status bar strip + the page, like Safari: the page starts below
+     the status bar, so nothing sits under the Dynamic Island. */
+  .screen { position: relative; overflow: hidden; background: #fff; display: flex; flex-direction: column; }
+  /* The swipe-home bar, where a real iPhone draws it — to check the tab bar clears it. */
+  .home-bar { position: absolute; left: 50%; bottom: 8px; width: 134px; height: 5px; margin-left: -67px; border-radius: 3px; background: rgba(0,0,0,.85); pointer-events: none; }
+  .tablet .home-bar { width: 180px; margin-left: -90px; bottom: 6px; }
+  /* iOS inverts the bar and the status-bar text over a dark page. */
+  .screen.dark .home-bar { background: rgba(255,255,255,.85); }
+  .screen.dark .status { color: #f2f2f2; }
+  .phone .screen { border-radius: 46px; }
+  .tablet .bezel { padding: 22px; border-radius: 38px; }
+  .tablet .screen { border-radius: 18px; }
+  .status { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 30px; background: #fbfcfd; color: #111; font: 600 15px/1 system-ui, sans-serif; position: relative; }
+  .tablet .status { padding: 0 22px; font-size: 12px; }
+  .status .island { position: absolute; left: 50%; top: 11px; width: 120px; height: 34px; margin-left: -60px; border-radius: 20px; background: #000; }
+  .status .icons { letter-spacing: 2px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <strong>Device preview</strong>
+  <form id="go">
+    <input id="path" type="text" value="/forms" spellcheck="false" aria-label="Path to open in both devices" />
+    <button class="primary" type="submit">Open in both</button>
+  </form>
+  <div class="chips" id="chips"></div>
+  <select id="phoneModel" aria-label="Phone model"></select>
+  <select id="tabletModel" aria-label="Tablet model"></select>
+  <button id="theme" type="button" title="Preview page background only">◐</button>
+</header>
+<main id="stage">
+  <div class="device tablet" id="tabletWrap">
+    <div class="label"><span id="tabletName"></span><button type="button" id="rotate">Rotate</button><button type="button" data-reload="tablet">Reload</button></div>
+    <div class="shell"><div class="bezel"><div class="screen"><div class="status" data-h="24"><span class="clock"></span><span class="icons">●●● 100%</span></div><iframe id="tablet" title="iPad preview"></iframe><div class="home-bar"></div></div></div></div>
+  </div>
+  <div class="device phone" id="phoneWrap">
+    <div class="label"><span id="phoneName"></span><button type="button" data-reload="phone">Reload</button></div>
+    <div class="shell"><div class="bezel"><div class="screen"><div class="status" data-h="54"><span class="clock"></span><span class="island"></span><span class="icons">●●● 100%</span></div><iframe id="phone" title="Phone preview"></iframe><div class="home-bar"></div></div></div></div>
+  </div>
+</main>
+<script>
+  // CSS-pixel viewports of the real devices.
+  const PHONES = { "iPhone 17 / 17 Pro": [402, 874], "iPhone 17 Pro Max": [440, 956], "iPhone Air": [420, 912], "iPhone 15 / 16": [393, 852], "iPhone SE": [375, 667], "iPhone 15 Pro Max": [430, 932], "Pixel 8": [412, 915] };
+  const TABLETS = { "iPad (10th gen) / Air": [820, 1180], "iPad mini": [744, 1133], "iPad Pro 13\"": [1032, 1376] };
+  const SHORTCUTS = ["/forms", "/forms/hot-foods", "/roster", "/roster/review", "/roster/attendance", "/roster/activity", "/roster/overview", "/more", "/profile", "/admin"];
+
+  const $ = (id) => document.getElementById(id);
+  const state = { phone: Object.keys(PHONES)[0], tablet: Object.keys(TABLETS)[0], landscape: false };
+  try { Object.assign(state, JSON.parse(localStorage.getItem("ln.devices") || "{}")); } catch {}
+  // A saved model that's since been renamed or dropped falls back to the default.
+  if (!PHONES[state.phone]) state.phone = Object.keys(PHONES)[0];
+  if (!TABLETS[state.tablet]) state.tablet = Object.keys(TABLETS)[0];
+  const save = () => { try { localStorage.setItem("ln.devices", JSON.stringify(state)); } catch {} };
+
+  for (const [sel, list, key] of [[$("phoneModel"), PHONES, "phone"], [$("tabletModel"), TABLETS, "tablet"]]) {
+    for (const name of Object.keys(list)) sel.add(new Option(name, name, false, name === state[key]));
+    sel.onchange = () => { state[key] = sel.value; save(); layout(); };
+  }
+  for (const p of SHORTCUTS) {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = p.slice(1) || "home";
+    b.onclick = () => { $("path").value = p; openBoth(p); };
+    $("chips").appendChild(b);
+  }
+
+  function size(kind) {
+    const [w, h] = kind === "phone" ? PHONES[state.phone] : TABLETS[state.tablet];
+    return kind === "tablet" && state.landscape ? [h, w] : [w, h];
+  }
+
+  /** Lay both frames out at true size, then scale them together to fit the window. */
+  function layout() {
+    const pad = { phone: 14, tablet: 22 };
+    const dims = {};
+    for (const kind of ["tablet", "phone"]) {
+      const [w, h] = size(kind);
+      const f = $(kind);
+      const bar = f.previousElementSibling;
+      const barH = Number(bar.dataset.h);
+      bar.style.height = barH + "px";
+      f.parentElement.style.width = w + "px"; f.parentElement.style.height = h + "px";
+      // The page gets what's left under the status bar, as in Safari.
+      f.style.width = w + "px"; f.style.height = h - barH + "px";
+      dims[kind] = [w + pad[kind] * 2, h + pad[kind] * 2];
+      $(kind + "Name").textContent = `${kind === "phone" ? state.phone : state.tablet} · ${w}×${h}${kind === "tablet" && state.landscape ? " landscape" : ""}`;
+    }
+    const stage = $("stage");
+    const availH = stage.clientHeight - 40 - 30; // padding + label row
+    const availW = stage.clientWidth - 40 - 40;   // padding + gap
+    const scale = Math.min(1, availH / Math.max(dims.tablet[1], dims.phone[1]), availW / (dims.tablet[0] + dims.phone[0]));
+    for (const kind of ["tablet", "phone"]) {
+      const wrap = $(kind + "Wrap");
+      const bezel = wrap.querySelector(".bezel");
+      bezel.style.transform = `scale(${scale})`;
+      wrap.querySelector(".shell").style.width = dims[kind][0] * scale + "px";
+      wrap.querySelector(".shell").style.height = dims[kind][1] * scale + "px";
+    }
+  }
+
+  function openBoth(path) {
+    if (!path.startsWith("/")) path = "/" + path;
+    for (const kind of ["phone", "tablet"]) $(kind).src = path;
+    const u = new URL(location.href); u.searchParams.set("path", path); history.replaceState(null, "", u);
+  }
+
+  $("go").onsubmit = (e) => { e.preventDefault(); openBoth($("path").value.trim() || "/"); };
+  $("rotate").onclick = () => { state.landscape = !state.landscape; save(); layout(); };
+  document.querySelectorAll("[data-reload]").forEach((b) => (b.onclick = () => $(b.dataset.reload).contentWindow.location.reload()));
+  $("theme").onclick = () => {
+    const r = document.documentElement;
+    r.dataset.theme = r.dataset.theme === "dark" ? "light" : "dark";
+  };
+
+  /**
+   * What a real device gives the page, and what the page gives back.
+   *
+   * In: the home-indicator inset. An iframe has no safe area, so env() reads 0
+   * and the app would lay out as if on a phone with no home bar; the app reads
+   * the inset through --safe-bottom, so the preview supplies that with a small
+   * stylesheet (see below for why not an inline style).
+   *
+   * Out: the frame's status bar and home bar follow the page's theme, the way
+   * iOS tints them — the status bar takes the app's colour (its theme-color),
+   * and both invert over dark mode.
+   */
+  const INSET = { phone: 34, tablet: 20 };
+  const observers = {};
+  function syncChrome(kind) {
+    try {
+      const doc = $(kind).contentDocument;
+      const root = doc.documentElement;
+      // A stylesheet, not an inline style on <html>: React hydrates the
+      // server-rendered <html>, and an attribute it didn't render is reported
+      // as a hydration mismatch. An extra <style> in <head> is left alone.
+      if (!doc.getElementById("device-preview-inset")) {
+        const style = doc.createElement("style");
+        style.id = "device-preview-inset";
+        style.textContent = `html:root { --safe-bottom: ${INSET[kind]}px; }`; // beats the app's own :root rule
+        doc.head.appendChild(style);
+      }
+      const dark = root.classList.contains("dark");
+      const screen = $(kind).parentElement;
+      screen.classList.toggle("dark", dark);
+      const meta = doc.querySelector('meta[name="theme-color"]');
+      const channels = getComputedStyle(root).getPropertyValue(kind === "phone" ? "--c-sidebar" : "--c-surface").trim();
+      screen.querySelector(".status").style.background =
+        kind === "phone" && meta?.content ? meta.content : channels ? `rgb(${channels.split(/\s+/).join(", ")})` : "";
+    } catch {
+      // Cross-origin or mid-navigation — try again on the next change.
+    }
+  }
+
+  for (const kind of ["phone", "tablet"]) {
+    $(kind).addEventListener("load", () => {
+      try { const w = $(kind).contentWindow; const p = w.location.pathname + w.location.search; if (kind === "phone") $("path").value = p; } catch {}
+      syncChrome(kind);
+      // Theme changes (Profile → Appearance) flip classes/vars on <html> and
+      // rewrite theme-color; watch both so the chrome follows live.
+      observers[kind]?.disconnect();
+      try {
+        const doc = $(kind).contentDocument;
+        const mo = new MutationObserver(() => syncChrome(kind));
+        mo.observe(doc.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
+        mo.observe(doc.head, { subtree: true, attributes: true, childList: true, attributeFilter: ["content"] });
+        observers[kind] = mo;
+      } catch {}
+    });
+  }
+
+  const tick = () => document.querySelectorAll(".clock").forEach((c) => (c.textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).replace(/\s?[AP]M/, "")));
+  tick(); setInterval(tick, 30_000);
+
+  window.addEventListener("resize", layout);
+  layout();
+  openBoth(new URLSearchParams(location.search).get("path") || "/forms");
+</script>
+</body>
+</html>

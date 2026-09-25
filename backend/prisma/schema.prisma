@@ -1,0 +1,443 @@
+// Lantern Forms — data model (forms hub + roster).
+//
+// Local prototype runs on SQLite so it boots with no database server. The
+// schema is deliberately written in the subset Prisma supports on BOTH SQLite
+// and SQL Server (Azure SQL): no enums, no scalar lists, no Json columns —
+// statuses are strings and structured blobs are JSON text. Moving to Azure SQL
+// is a provider + DATABASE_URL change; see README "Moving to Azure SQL".
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── Sites ─────────────────────────
+
+/// A Lantern property / shelter site. Every roster entry belongs to one.
+model Site {
+  id         String  @id @default(cuid())
+  /// Stable, URL-safe code used by the public API and WordPress
+  /// (e.g. "amber-hall"). Never changes once integrations depend on it.
+  code       String  @unique
+  /// Display name staff see ("Amber Hall").
+  name       String
+  /// Legal/ownership entity as it appears in property-management exports
+  /// ("Amber Hall LP"). The CSV importer matches on this.
+  /// Unique in practice (enforced in code) — not a DB unique index, because
+  /// SQL Server permits only one NULL in a unique index.
+  entityName String?
+  /// "shelter" sites turn over fast; "supportive" housing is stable. Drives
+  /// nothing yet beyond display, but the attention threshold is likely to
+  /// differ by type, so it is recorded now.
+  siteType   String  @default("supportive")
+  address    String?
+  /// Where the building is (WGS84). Forms use it to pick the site a staff
+  /// member is standing at; their position is compared on the device and never
+  /// sent to the server. Both null = no location on file.
+  latitude   Float?
+  longitude  Float?
+  /// How close counts as "at this site", in metres. Null = the default (200).
+  geofenceMeters Int?
+  active     Boolean @default(true)
+  /// Per-site override of the attention threshold, in hours. Null = org default.
+  attentionHours Int?
+
+  tenants          Tenant[]
+  userSites        UserSite[]
+  apiKeys          ApiKey[]
+  attendanceEvents AttendanceEvent[]
+  hotFoodEntries   HotFoodEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([entityName])
+}
+
+// ───────────────────────── Roster ─────────────────────────
+
+/// One person on a site's roster. The id is the permanent roster ID: forms,
+/// WordPress and the activity log all reference it, never the name — so a
+/// spelling fix or a preferred-name change can't create a false "inactive".
+model Tenant {
+  id            String    @id @default(cuid())
+  site          Site      @relation(fields: [siteId], references: [id])
+  siteId        String
+  unit          String?
+  firstName     String
+  lastName      String    @default("")
+  /// What staff call them ("Inez"). Shown first when present.
+  preferredName String?
+  /// "active" | "archived". Removing someone archives them; nothing in the
+  /// app hard-deletes a roster entry.
+  status        String    @default("active")
+  moveInDate    DateTime?
+  moveOutDate   DateTime?
+  notes         String?
+  /// Identifier in an upstream system (Yardi, property-management export…).
+  externalId    String?
+
+  // ── Activity / attention ────────────────────────────────
+  /// Last time any designated form or integration referenced this person.
+  lastActivityAt     DateTime?
+  lastActivitySource String?
+  /// Last time a staff member swiped "keep" in the review queue.
+  lastKeptAt         DateTime?
+  lastKeptById       String?
+  /// max(createdAt, lastActivityAt, lastKeptAt) — denormalised so the
+  /// attention queue is one indexed range scan instead of a computed filter.
+  /// Maintained by services/roster.ts; never write it directly.
+  attentionClockAt   DateTime  @default(now())
+
+  // ── Archive ────────────────────────────────────────────
+  archivedAt    DateTime?
+  archivedById  String?
+  archiveReason String?
+
+  /// Optimistic concurrency: every write must present the version it read.
+  version     Int      @default(1)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  activities        TenantActivity[]
+  audit             AuditEvent[]
+  attendanceEntries AttendanceEntry[]
+  hotFoodEntries    HotFoodEntry[]
+
+  @@index([siteId, status, attentionClockAt])
+  @@index([siteId, status, unit])
+  @@index([updatedAt])
+  @@index([lastName, firstName])
+}
+
+/// A signal that a tenant is still around: a form submission that named them,
+/// an integration ping, or a manual "seen today". Append-only.
+model TenantActivity {
+  id          String   @id @default(cuid())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId    String
+  /// Machine source: "gravity_forms" | "roster" | "api" | "import".
+  source      String
+  /// Human label: "Incident Report (form 12)".
+  label       String?
+  /// Source-side id (e.g. GF entry id). With `source`, makes a retried
+  /// webhook idempotent — checked in code, not by a unique constraint,
+  /// because SQL Server allows only one NULL in a unique index.
+  externalRef String?
+  occurredAt  DateTime
+  /// Who/what recorded it — a person's name or an API key's name.
+  recordedBy  String?
+  createdAt   DateTime @default(now())
+
+  @@index([source, externalRef])
+  @@index([tenantId, occurredAt])
+}
+
+/// Immutable record of who changed a roster and why.
+model AuditEvent {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actorName String
+  /// tenant.created | tenant.updated | tenant.archived | tenant.restored |
+  /// tenant.kept | site.* | user.* | import.completed | apikey.* | webhook.*
+  action    String
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId  String?
+  siteId    String?
+  summary   String
+  /// JSON text: { field: [before, after] } or free-form metadata.
+  changes   String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([siteId, createdAt])
+  @@index([tenantId, createdAt])
+}
+
+// ───────────────────────── Attendance ─────────────────────────
+
+/// One attendance-taking session at a site: a title, a description, and
+/// whoever was marked present. Append-only — nothing here is ever edited;
+/// retake it if a mistake is made, the same philosophy as AuditEvent.
+model AttendanceEvent {
+  id            String   @id @default(cuid())
+  site          Site     @relation(fields: [siteId], references: [id])
+  siteId        String
+  title         String
+  description   String
+  /// Always the server's clock at creation — never taken from the client.
+  occurredAt    DateTime @default(now())
+  createdById   String?
+  createdByName String
+  createdAt     DateTime @default(now())
+
+  entries AttendanceEntry[]
+
+  @@index([siteId, occurredAt])
+}
+
+/// One person's presence at an attendance event, with an optional signature
+/// captured on the device at the time.
+model AttendanceEntry {
+  id       String          @id @default(cuid())
+  event    AttendanceEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId  String
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenantId String
+  /// Snapshot at signing time — a later name edit shouldn't rewrite history.
+  tenantName String
+  /// PNG data URL captured on the device; null if not collected.
+  signature String?
+  signedAt  DateTime?
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, tenantId])
+  @@index([tenantId])
+}
+
+// ───────────────────────── Hot Foods ─────────────────────────
+
+/// A kind of meal the Hot Foods form hands out ("Individual Meals", "Holiday
+/// Meals"). Replaces WordPress's hotfood.csv. Hidden rather than deleted once
+/// used, so past entries keep their meaning.
+model HotFoodItem {
+  id        String   @id @default(cuid())
+  name      String
+  imageUrl  String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  /// Report color: a slot 0-7 of the validated chart palette (frontend
+  /// index.css --viz-1…8), fixed per meal type so a color means the same meal
+  /// on every chart and range. Null = drawn as "Other" gray.
+  colorSlot Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entryItems HotFoodEntryItem[]
+}
+
+/// One hot food distribution to one resident, signed for on the device.
+/// Never edited: a mistake is voided (with a reason) and recorded again, so the
+/// count staff reported on a given day can always be reconstructed.
+model HotFoodEntry {
+  id         String   @id @default(cuid())
+  site       Site     @relation(fields: [siteId], references: [id])
+  siteId     String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenantId   String
+  /// Snapshots at the time of the distribution — a later roster edit (a room
+  /// move, a name fix) shouldn't rewrite history.
+  tenantName String
+  unit       String?
+  /// Total of every item's quantity, denormalised so reports can sum one column.
+  mealCount  Int
+  notes      String?
+  /// Required when this resident was already at the day's limit.
+  overrideReason String?
+  /// PNG data URL of the resident's signature.
+  signature  String
+  /// "app" | "demo" | "wordpress" — where the row came from.
+  source     String   @default("app")
+  /// When the meal was handed over. The recording device saves entries locally
+  /// and uploads them when it can, so this is the device's time of signing
+  /// (clamped to now); `createdAt` is when the server received it.
+  occurredAt DateTime @default(now())
+  /// The recording device's id for this entry, so a retried upload returns the
+  /// entry it already made instead of recording the meal twice. Unique in
+  /// practice (enforced in code) — not a DB unique index, because SQL Server
+  /// permits only one NULL in a unique index.
+  clientId   String?
+  createdById   String?
+  createdByName String
+
+  voidedAt     DateTime?
+  voidedById   String?
+  voidedByName String?
+  voidReason   String?
+
+  createdAt DateTime @default(now())
+
+  items HotFoodEntryItem[]
+
+  @@index([siteId, occurredAt])
+  @@index([tenantId, occurredAt])
+  @@index([occurredAt])
+  @@index([clientId])
+}
+
+model HotFoodEntryItem {
+  id       String       @id @default(cuid())
+  entry    HotFoodEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  entryId  String
+  item     HotFoodItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  itemId   String?
+  /// Snapshot of the item's name, so renaming a meal type keeps old reports honest.
+  itemName String
+  quantity Int
+
+  @@index([entryId])
+  @@index([itemId])
+}
+
+// ───────────────────────── Forms hub ─────────────────────────
+
+/// A heading on the Forms screen ("Pantry Forms", "Finance & Cash Handling").
+model FormCategory {
+  id        String     @id @default(cuid())
+  name      String
+  /// Icon key from the frontend's fixed set (frontend/src/lib/formIcons.ts).
+  icon      String     @default("folder")
+  sortOrder Int        @default(0)
+  forms     FormLink[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+/// One form (or form-like destination) on the Forms screen. Most still live on
+/// the WordPress site and are plain links; as a form is rebuilt inside this app
+/// its `url` becomes an app path ("/roster") and nothing else changes.
+model FormLink {
+  id          String       @id @default(cuid())
+  /// No cascade: a category must be emptied before it can be deleted.
+  category    FormCategory @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  categoryId  String
+  title       String
+  description String?
+  /// An absolute http(s) URL (a form still on WordPress), or an app path
+  /// starting with "/" (a screen built into this site).
+  url         String
+  /// Extra words search should match, comma-separated ("tenant updater, move in").
+  keywords    String?
+  /// Short tag shown on the card ("New", "Password required").
+  badge       String?
+  sortOrder   Int          @default(0)
+  /// Hidden from staff when false; admins still see it in the catalog editor.
+  active      Boolean      @default(true)
+  /// Comma-separated role keys that may see this form ("site_admin,site_manager").
+  /// Null = every role. Admins always see every form.
+  roles       String?
+  favorites   FormFavorite[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([categoryId, sortOrder])
+}
+
+/// A form someone starred, so it sits at the top of their Forms screen on
+/// every device they sign in on.
+model FormFavorite {
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  form      FormLink @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId    String
+  createdAt DateTime @default(now())
+
+  @@id([userId, formId])
+  @@index([formId])
+}
+
+// ───────────────────────── People ─────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  /// Entra object id — stable identity behind the mailbox, recorded on first
+  /// sign-in. Google Workspace users signing in as Entra B2B guests get one
+  /// too, so the same matching works for both. Indexed, not unique: invited
+  /// users have none yet, and SQL Server allows only one NULL per unique index.
+  entraObjectId String?
+  /// "microsoft" | "google.com" | other federated idp claim. Informational.
+  identityProvider String?
+  /// admin | main_office | site_admin | site_manager | site_staff — see services/permissions.ts.
+  roleKey       String    @default("site_staff")
+  /// active | invited | requested | denied | deactivated
+  status        String    @default("active")
+  title         String?
+  avatarColor   String?
+  defaultLandingPage String @default("/forms")
+  /// Site code the roster opens on. Null = first site they can see.
+  defaultSiteCode    String?
+  lastSignInAt  DateTime?
+
+  /// Sites this person may act on. Empty = all sites (admins always all).
+  sites UserSite[]
+  formFavorites FormFavorite[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([entraObjectId])
+}
+
+model UserSite {
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  siteId String
+
+  @@id([userId, siteId])
+}
+
+// ───────────────────────── Integrations ─────────────────────────
+
+/// Machine credential for WordPress / Power Automate. Only a hash is stored.
+model ApiKey {
+  id         String    @id @default(cuid())
+  name       String
+  /// First characters of the key, shown so people can tell keys apart.
+  prefix     String
+  hash       String    @unique
+  /// Comma-separated: "roster:read,activity:write".
+  scopes     String
+  /// Optional restriction to one site.
+  site       Site?     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  siteId     String?
+  lastUsedAt DateTime?
+  createdById String?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+/// Outbound webhook: roster changes are POSTed here, HMAC-signed.
+model Webhook {
+  id        String   @id @default(cuid())
+  name      String
+  url       String
+  secret    String
+  /// Comma-separated event names, or "*" for everything.
+  events    String   @default("*")
+  active    Boolean  @default(true)
+  lastDeliveryAt DateTime?
+  lastStatus     Int?
+  lastError      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deliveries WebhookDelivery[]
+}
+
+model WebhookDelivery {
+  id         String   @id @default(cuid())
+  webhook    Webhook  @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  webhookId  String
+  event      String
+  statusCode Int?
+  error      String?
+  durationMs Int?
+  createdAt  DateTime @default(now())
+
+  @@index([webhookId, createdAt])
+}
+
+/// Org-wide key/value settings (attention threshold, guest domains…).
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
