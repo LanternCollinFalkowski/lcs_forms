@@ -35,10 +35,13 @@ function toClient<T extends FormRow>(form: T): Omit<T, "roles"> & { roles: strin
   return { ...form, roles: rolesOf(form) };
 }
 
-/** Icon keys the frontend can draw (frontend/src/lib/formIcons.ts). */
+/** Icon keys the frontend can draw (frontend/src/lib/formIcons.ts). Categories and forms share the set. */
 export const FORM_ICONS = [
   "folder", "utensils", "users", "bus", "wallet", "shield", "briefcase", "monitor",
   "home", "heart", "calendar", "clipboard", "package", "file",
+  "basket", "soup", "cart", "boxes", "contact", "camera", "gift", "inspect", "party", "calendar-plus",
+  "train", "ticket", "banknote", "piggy-bank", "receipt", "lock", "alert", "newspaper", "user-plus",
+  "hard-hat", "message", "laptop", "help", "history", "inbox",
 ] as const;
 
 /**
@@ -77,6 +80,8 @@ const formBody = z.object({
   url: formUrl,
   keywords: optionalText(255),
   badge: optionalText(30),
+  /** Null = use the category's icon. */
+  icon: z.enum(FORM_ICONS).nullable().optional(),
   active: z.boolean().optional(),
   /** Roles that may see the form. Empty or null = everyone. */
   roles: z

@@ -207,6 +207,8 @@ export interface FormLink {
   roles: string[];
   keywords: string | null;
   badge: string | null;
+  /** Icon key (lib/formIcons.ts); null = the category's icon. */
+  icon: string | null;
   sortOrder: number;
   active: boolean;
 }
@@ -249,13 +251,25 @@ export interface HotFoodItem {
 }
 
 export interface HotFoodToday {
+  /** Meals of each meal type one resident may get today before a reason is needed. */
   limit: number;
+  /** Minutes between two meals of the same type (shelters); 0 = none. */
+  cooldownMinutes: number;
   isShelter: boolean;
   /** tenantId → non-void entries today at this site. */
   counts: Record<string, number>;
+  /** tenantId → itemId → one timestamp (ms) per meal of that type today. */
+  meals: Record<string, Record<string, number[]>>;
   /** tenantId → meals at this site over the `regularsDays` days before today. */
   regulars: Record<string, number>;
   regularsDays: number;
+}
+
+/** Admin → Hot Foods. */
+export interface HotFoodConfig {
+  supportiveLimit: number;
+  shelterLimit: number;
+  cooldownMinutes: number;
 }
 
 export interface HotFoodEntryRow {

@@ -1,12 +1,14 @@
 import {
-  Briefcase, Bus, Calendar, ClipboardList, File, Folder, Heart, Home, Monitor, Package, Shield, Users, Utensils, Wallet,
+  Banknote, Boxes, Briefcase, Bus, Calendar, CalendarPlus, Camera, ClipboardList, Contact, File, Folder, Gift, HardHat, Heart,
+  History, Home, Inbox, Laptop, LifeBuoy, Lock, MessageSquare, Monitor, Newspaper, Package, PartyPopper, PiggyBank, Receipt,
+  SearchCheck, Shield, ShoppingBasket, ShoppingCart, Soup, Ticket, TrainFront, TriangleAlert, UserPlus, Users, Utensils, Wallet,
 } from "lucide-react";
 import type { PermissionKey } from "./types";
 
 /**
- * Icons a form category can wear. The keys are stored in the database, so this
- * list must match FORM_ICONS in backend/src/routes/forms.ts: add to both, and
- * never rename a key that is in use.
+ * Icons a form category or a form can wear. The keys are stored in the
+ * database, so this list must match FORM_ICONS in backend/src/routes/forms.ts:
+ * add to both, and never rename a key that is in use.
  */
 export const FORM_ICONS = {
   folder: { label: "Folder", Icon: Folder },
@@ -23,12 +25,42 @@ export const FORM_ICONS = {
   clipboard: { label: "Clipboard", Icon: ClipboardList },
   package: { label: "Package", Icon: Package },
   file: { label: "Document", Icon: File },
+  basket: { label: "Pantry", Icon: ShoppingBasket },
+  soup: { label: "Hot meal", Icon: Soup },
+  cart: { label: "Groceries", Icon: ShoppingCart },
+  boxes: { label: "Inventory", Icon: Boxes },
+  contact: { label: "Roster", Icon: Contact },
+  camera: { label: "Photo", Icon: Camera },
+  gift: { label: "Gift", Icon: Gift },
+  inspect: { label: "Inspection", Icon: SearchCheck },
+  party: { label: "Event", Icon: PartyPopper },
+  "calendar-plus": { label: "Request", Icon: CalendarPlus },
+  train: { label: "Transit", Icon: TrainFront },
+  ticket: { label: "Ticket", Icon: Ticket },
+  banknote: { label: "Cash", Icon: Banknote },
+  "piggy-bank": { label: "Savings", Icon: PiggyBank },
+  receipt: { label: "Receipt", Icon: Receipt },
+  lock: { label: "Lock", Icon: Lock },
+  alert: { label: "Incident", Icon: TriangleAlert },
+  newspaper: { label: "Newsletter", Icon: Newspaper },
+  "user-plus": { label: "New person", Icon: UserPlus },
+  "hard-hat": { label: "Safety", Icon: HardHat },
+  message: { label: "Conversation", Icon: MessageSquare },
+  laptop: { label: "Laptop", Icon: Laptop },
+  help: { label: "Help", Icon: LifeBuoy },
+  history: { label: "History", Icon: History },
+  inbox: { label: "Inbox", Icon: Inbox },
 } as const;
 
 export type FormIconKey = keyof typeof FORM_ICONS;
 
 export function formIcon(key: string) {
   return (FORM_ICONS[key as FormIconKey] ?? FORM_ICONS.folder).Icon;
+}
+
+/** A form's own icon, or its category's when it has none. */
+export function formLinkIcon(form: { icon?: string | null }, categoryIcon: string) {
+  return formIcon(form.icon && form.icon in FORM_ICONS ? form.icon : categoryIcon);
 }
 
 /** A form built into this app ("/roster") rather than a link out to WordPress. */

@@ -16,6 +16,20 @@ import { cn } from "@/lib/utils";
  * rather than deleted, so past entries and reports keep their names.
  */
 export function ManageItemsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent aria-describedby={undefined} className="flex max-h-[85vh] w-[min(620px,calc(100vw-2rem))] flex-col p-0">
+        <DialogHeader title="Meal types" subtitle="What staff can pick on the Hot Foods form." />
+        <DialogBody className="min-h-0 flex-1 overflow-y-auto scroll-thin">
+          <MealTypesEditor />
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** The list and the add row, shared by the dialog on Record and Admin → Hot Foods. */
+export function MealTypesEditor() {
   const toast = useToast();
   const { data: items, isLoading } = useHotFoodItems(true);
   const [name, setName] = useState("");
@@ -41,50 +55,45 @@ export function ManageItemsDialog({ open, onOpenChange }: { open: boolean; onOpe
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent aria-describedby={undefined} className="flex max-h-[85vh] w-[min(620px,calc(100vw-2rem))] flex-col p-0">
-        <DialogHeader title="Meal types" subtitle="What staff can pick on the Hot Foods form." />
-        <DialogBody className="min-h-0 flex-1 overflow-y-auto scroll-thin">
-          {isLoading || !items ? (
-            <LoadingState />
-          ) : (
-            <ul className="mb-5 divide-y divide-hairline rounded-card border border-hairline">
-              {items.map((item, i) => (
-                <ItemRow
-                  key={item.id}
-                  item={item}
-                  first={i === 0}
-                  last={i === items.length - 1}
-                  usedBy={(slot) => items.find((x) => x.id !== item.id && x.colorSlot === slot)?.name}
-                  onMove={(by) => move(items, i, by)}
-                  onSave={(body) => run(update.mutateAsync({ id: item.id, body }), "Saved.")}
-                />
-              ))}
-            </ul>
-          )}
-          <p className="mb-2 text-[13px] font-bold text-ink">Add a meal type</p>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name, e.g. Thanksgiving Dinner" maxLength={80} className="min-h-[44px] sm:flex-1" />
-            <Input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="Picture link (optional)" className="min-h-[44px] sm:flex-1" type="url" />
-            <Button
-              className="min-h-[44px]"
-              disabled={!name.trim() || create.isPending}
-              onClick={() =>
-                run(
-                  create.mutateAsync({ name: name.trim(), ...(imageUrl.trim() ? { imageUrl: imageUrl.trim() } : {}) }).then(() => {
-                    setName("");
-                    setImageUrl("");
-                  }),
-                  "Added."
-                )
-              }
-            >
-              <Plus className="h-4 w-4" /> Add
-            </Button>
-          </div>
-        </DialogBody>
-      </DialogContent>
-    </Dialog>
+    <>
+      {isLoading || !items ? (
+        <LoadingState />
+      ) : (
+        <ul className="mb-5 divide-y divide-hairline rounded-card border border-hairline">
+          {items.map((item, i) => (
+            <ItemRow
+              key={item.id}
+              item={item}
+              first={i === 0}
+              last={i === items.length - 1}
+              usedBy={(slot) => items.find((x) => x.id !== item.id && x.colorSlot === slot)?.name}
+              onMove={(by) => move(items, i, by)}
+              onSave={(body) => run(update.mutateAsync({ id: item.id, body }), "Saved.")}
+            />
+          ))}
+        </ul>
+      )}
+      <p className="mb-2 text-[13px] font-bold text-ink">Add a meal type</p>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name, e.g. Thanksgiving Dinner" maxLength={80} className="min-h-[44px] sm:flex-1" />
+        <Input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="Picture link (optional)" className="min-h-[44px] sm:flex-1" type="url" />
+        <Button
+          className="min-h-[44px]"
+          disabled={!name.trim() || create.isPending}
+          onClick={() =>
+            run(
+              create.mutateAsync({ name: name.trim(), ...(imageUrl.trim() ? { imageUrl: imageUrl.trim() } : {}) }).then(() => {
+                setName("");
+                setImageUrl("");
+              }),
+              "Added."
+            )
+          }
+        >
+          <Plus className="h-4 w-4" /> Add
+        </Button>
+      </div>
+    </>
   );
 }
 

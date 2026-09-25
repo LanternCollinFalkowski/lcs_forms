@@ -24,6 +24,7 @@ import { AdminPeople } from "./screens/admin/People";
 import { AdminSettings, AdminSignInAccess } from "./screens/admin/Settings";
 import { AdminApiKeys, AdminWebhooks, AdminWordPress } from "./screens/admin/Integrations";
 import { AdminFormsCatalog } from "./screens/admin/FormsCatalog";
+import { AdminHotFoods } from "./screens/admin/HotFoods";
 import { HotFoodsRecordPage } from "./screens/hotfoods/Record";
 import { HotFoodsEntriesPage } from "./screens/hotfoods/Entries";
 import { HotFoodsEntryDetailPage } from "./screens/hotfoods/EntryDetail";
@@ -170,6 +171,7 @@ export function App() {
           <Route element={<ConfigLayout />}>
             <Route element={<RequirePermission anyOf={["forms.manage"]} />}>
               <Route path="/admin/forms" element={<AdminFormsCatalog />} />
+              <Route path="/admin/hot-foods" element={<AdminHotFoods />} />
             </Route>
             <Route element={<RequirePermission anyOf={["sites.manage"]} />}>
               <Route path="/admin/sites" element={<AdminSites />} />

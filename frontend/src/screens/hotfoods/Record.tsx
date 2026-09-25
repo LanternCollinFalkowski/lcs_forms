@@ -14,7 +14,8 @@ import { useHotFoodItems, useHotFoodToday, useSites, useTenants } from "@/lib/qu
 import { cn, initials, tintFor } from "@/lib/utils";
 import type { HotFoodItem, Site, Tenant } from "@/lib/types";
 import { ManageItemsDialog } from "./ManageItems";
-import { LocationHint, siteOptions, useNearbySite } from "@/components/forms/SiteLocator";
+import { cooldownLeft, mealsWithQueued, minutes, ruleProblems, type Rules, type Served } from "@/lib/hotFoodRules";
+import { isLocating, LocationHint, PickerStatus, pickerHasIcon, siteOptions, useNearbySite } from "@/components/forms/SiteLocator";
 
 /**
  * Record a hot meal as three guided steps: Meal → Resident → Sign, then a
@@ -65,7 +66,7 @@ function rememberedMeal(): { id: string; today: boolean } {
   return { id: id ?? "", today: day === new Date().toDateString() };
 }
 
-/** One-tap reasons for serving someone past the daily limit. */
+/** One-tap reasons for serving someone past the daily limit or inside the shelter cooldown. */
 const OVER_LIMIT_REASONS = ["Picking up for a household member", "Missed an earlier meal", "Extra meals available", "Approved by site manager"];
 
 type Cart = Record<string, number>;
@@ -100,6 +101,7 @@ export function HotFoodsRecordPage() {
   // a beat before the screen moves on, and a live count would flash the
   // over-limit warning for the entry being saved.
   const [servingCount, setServingCount] = useState(0);
+  const [servingMeals, setServingMeals] = useState<Served>({});
   const [recent, setRecent] = useState<Recent[]>([]);
   const [managing, setManaging] = useState(false);
   const queue = useHotFoodsQueue();
@@ -110,7 +112,8 @@ export function HotFoodsRecordPage() {
   const roster = isPlaceholderData ? [] : rosterData?.items ?? [];
   const { data: today } = useHotFoodToday(site?.code);
   const counts = useMemo(() => withQueued(today?.counts ?? {}, queue.items, site?.code), [today?.counts, queue.items, site?.code]);
-  const limit = today?.limit ?? 1;
+  const meals = useMemo(() => mealsWithQueued(today?.meals ?? {}, queue.items, site?.code), [today?.meals, queue.items, site?.code]);
+  const rules: Rules = useMemo(() => ({ limit: today?.limit ?? 1, cooldownMinutes: today?.cooldownMinutes ?? 0 }), [today?.limit, today?.cooldownMinutes]);
   const storedMeal = items?.find((i) => i.id === mealId);
   const meal = storedMeal ?? items?.[0];
   // A remembered meal that has since been removed sends the shift back to step 1.
@@ -121,6 +124,9 @@ export function HotFoodsRecordPage() {
   // hand, and never swaps the site out from under someone signing.
   const nearby = useNearbySite(sites);
   const chosenByHand = useRef(false);
+  // The picker reads "Finding your location…" until location answers, unless
+  // the person has already picked a site themselves.
+  const finding = isLocating(nearby) && !chosenByHand.current;
   useEffect(() => {
     if (!nearby.here || chosenByHand.current || current === "sign") return;
     if (nearby.here.site.code !== site?.code) setSiteCode(nearby.here.site.code);
@@ -155,6 +161,7 @@ export function HotFoodsRecordPage() {
   function pick(t: Tenant) {
     setServing(t);
     setServingCount(counts[t.id] ?? 0);
+    setServingMeals(meals[t.id] ?? {});
     setStep("sign");
   }
 
@@ -195,7 +202,7 @@ export function HotFoodsRecordPage() {
     });
     const time = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     setRecent((list) =>
-      [{ clientId: entry.clientId, name: t.displayName, mealCount, slot: lines[0]?.colorSlot ?? null, detail: `${time} · ${mealLabel(lines, cart)}${overrideReason ? " · extra" : ""}` }, ...list].slice(0, 5)
+      [{ clientId: entry.clientId, name: t.displayName, mealCount, slot: lines[0]?.colorSlot ?? null, detail: `${time} · ${mealLabel(lines, cart)}${overrideReason ? " · extra" : ""}` }, ...list].slice(0, 3)
     );
     setStep("done");
   }
@@ -231,7 +238,7 @@ export function HotFoodsRecordPage() {
           spare and height is what the steps are short of. */}
       <div className={cn("flex-none border-b border-hairline px-4 py-2 md:block md:px-7 md:py-3 lg:hidden", current === "sign" && "hidden")}>
         <div className="mx-auto flex max-w-[1240px] flex-wrap items-start gap-3">
-          <SiteControl sites={sites} site={site} nearby={nearby} onChange={changeSite} hintOnPhone={current === "meal"} className="min-w-0 flex-1 md:max-w-[360px]" />
+          <SiteControl sites={sites} site={site} nearby={nearby} finding={finding} onChange={changeSite} hintOnPhone={current === "meal"} className="min-w-0 flex-1 md:max-w-[360px]" />
           <div className="ml-auto mt-1 shrink-0 md:mt-1.5">
             <SyncStatus />
           </div>
@@ -239,9 +246,9 @@ export function HotFoodsRecordPage() {
       </div>
 
       <div className="mx-auto flex min-h-0 w-full max-w-[1240px] flex-1 flex-col lg:flex-row">
-        <aside className="flex-none border-b border-hairline bg-sidebar px-4 py-1.5 scroll-thin md:py-3 md:px-7 lg:w-[272px] lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-5 lg:py-6">
-          <div className="mb-5 hidden space-y-2 border-b border-hairline pb-5 lg:block">
-            <SiteControl sites={sites} site={site} nearby={nearby} onChange={changeSite} />
+        <aside className="flex-none border-b border-hairline bg-sidebar px-4 py-1.5 scroll-thin md:py-3 md:px-7 lg:w-[272px] lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-5 lg:py-4">
+          <div className="mb-3 hidden space-y-2 border-b border-hairline pb-3 lg:block">
+            <SiteControl sites={sites} site={site} nearby={nearby} finding={finding} onChange={changeSite} />
             <SyncStatus />
           </div>
           <StepRail step={current} meal={meal} tenant={serving} onBack={back} onGo={setStep} />
@@ -263,9 +270,10 @@ export function HotFoodsRecordPage() {
                 roster={roster}
                 loading={rosterLoading || isPlaceholderData}
                 counts={counts}
+                meals={meals}
                 regulars={today?.regulars ?? {}}
                 regularsDays={today?.regularsDays ?? 30}
-                limit={limit}
+                rules={rules}
                 meal={meal}
                 onPick={pick}
               />
@@ -277,7 +285,8 @@ export function HotFoodsRecordPage() {
               items={items}
               defaultMeal={meal}
               servedToday={servingCount}
-              limit={limit}
+              served={servingMeals}
+              rules={rules}
               onSave={(cart, sig, notes, reason) => save(serving, cart, sig, notes, reason)}
             />
           )}
@@ -300,10 +309,11 @@ export function HotFoodsRecordPage() {
 }
 
 /** The site being served: a picker (with the location hint) for someone with several, else just its name. */
-function SiteControl({ sites, site, nearby, onChange, hintOnPhone = true, className }: {
+function SiteControl({ sites, site, nearby, finding, onChange, hintOnPhone = true, className }: {
   sites: Site[];
   site?: Site;
   nearby: ReturnType<typeof useNearbySite>;
+  finding: boolean;
   onChange: (code: string) => void;
   /** Off past the meal step: on a phone the list below needs the two lines more than the reminder. */
   hintOnPhone?: boolean;
@@ -312,14 +322,20 @@ function SiteControl({ sites, site, nearby, onChange, hintOnPhone = true, classN
   if (sites.length <= 1) return <p className={cn("min-h-[36px] content-center text-[15px] font-semibold text-ink", className)}>{site?.name}</p>;
   return (
     <div className={className}>
-      <Select
-        value={site?.code ?? ""}
-        onChange={(e) => onChange(e.target.value)}
-        options={siteOptions(sites, nearby.ranked)}
-        placeholder="Choose a site"
-        aria-label="Site"
-        className="min-h-[44px] text-[16px] font-semibold md:min-h-[48px]"
-      />
+      <div className="relative">
+        {/* While location looks, the box says so rather than showing the
+            remembered site it may be about to replace; picking one by hand
+            still works. */}
+        <Select
+          value={finding ? "" : (site?.code ?? "")}
+          onChange={(e) => onChange(e.target.value)}
+          options={siteOptions(sites, nearby.ranked)}
+          placeholder={finding ? "Finding your location…" : "Choose a site"}
+          aria-label="Site"
+          className={cn("min-h-[44px] text-[16px] font-semibold md:min-h-[48px]", (finding || pickerHasIcon(nearby, site?.code)) && "pl-9")}
+        />
+        <PickerStatus nearby={nearby} finding={finding} selectedCode={site?.code} />
+      </div>
       <div className={hintOnPhone ? undefined : "hidden md:block"}>
         <LocationHint nearby={nearby} selectedCode={site?.code} onPick={onChange} />
       </div>
@@ -369,7 +385,7 @@ function StepRail({ step, meal, tenant, onBack, onGo }: { step: Step; meal: HotF
       </div>
 
       {/* iPad and wider */}
-      <ol className="hidden gap-2 md:flex lg:flex-col" aria-label="Steps">
+      <ol className="hidden gap-2 md:flex lg:flex-col lg:gap-1" aria-label="Steps">
         {STEPS.map((s, i) => {
           const done = i < at;
           const cur = i === at;
@@ -381,7 +397,7 @@ function StepRail({ step, meal, tenant, onBack, onGo }: { step: Step; meal: HotF
                 onClick={() => onGo(s.key === "sign" ? "resident" : s.key)}
                 aria-current={cur ? "step" : undefined}
                 className={cn(
-                  "flex min-h-[64px] w-full items-center gap-3 rounded-card border-[1.5px] px-3 py-2 text-left",
+                  "flex min-h-[64px] w-full items-center gap-3 rounded-card lg:min-h-[50px] lg:py-1.5 border-[1.5px] px-3 py-2 text-left",
                   cur ? "border-navy bg-surface dark:border-white" : done ? "border-hairline hover:bg-rowhover" : "border-transparent"
                 )}
               >
@@ -409,7 +425,7 @@ function StepRail({ step, meal, tenant, onBack, onGo }: { step: Step; meal: HotF
 function ShiftSummary({ served, total, meals }: { served: number; total: number; meals: number }) {
   const pct = total ? Math.round((served / total) * 100) : 0;
   return (
-    <section className="mt-6 border-t border-hairline pt-5" aria-label="This shift">
+    <section className="mt-4 border-t border-hairline pt-3" aria-label="This shift">
       <h3 className="text-[12px] font-bold uppercase tracking-wide text-muted">Today here</h3>
       <p className="mt-1.5 flex items-baseline gap-2">
         <span className="text-[30px] font-heading font-extrabold tabular text-ink">{served}</span>
@@ -426,14 +442,14 @@ function ShiftSummary({ served, total, meals }: { served: number; total: number;
 
 function RecentList({ recent, queued, onUndo }: { recent: Recent[]; queued: Set<string>; onUndo: (r: Recent) => void }) {
   return (
-    <section className="mt-6" aria-label="Just recorded">
+    <section className="mt-4" aria-label="Just recorded">
       <h3 className="text-[12px] font-bold uppercase tracking-wide text-muted">Just recorded</h3>
       {recent.length === 0 ? (
         <p className="mt-2 text-[13.5px] text-muted">Entries you save this shift show here.</p>
       ) : (
         <ul className="mt-1.5">
           {recent.map((r) => (
-            <li key={r.clientId} className="flex min-h-[52px] items-center gap-2.5">
+            <li key={r.clientId} className="flex min-h-[44px] items-center gap-2.5">
               <span className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: vizColor(r.slot) }} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[14px] font-bold text-ink">{r.name}</span>
@@ -519,18 +535,26 @@ function MealThumb({ item, className }: { item: HotFoodItem; className?: string 
 }
 
 /** Step 2: find the resident. Not-served first, most frequent at the top. */
-function ResidentStep({ roster, loading, counts, regulars, regularsDays, limit, meal, onPick }: {
+function ResidentStep({ roster, loading, counts, meals, regulars, regularsDays, rules, meal, onPick }: {
   roster: Tenant[];
   loading: boolean;
   counts: Record<string, number>;
+  meals: Record<string, Served>;
   regulars: Record<string, number>;
   regularsDays: number;
-  limit: number;
+  rules: Rules;
   meal: HotFoodItem;
   onPick: (t: Tenant) => void;
 }) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("todo");
+  // Re-render every 30s so a shelter cooldown counts down on its own.
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!rules.cooldownMinutes) return;
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [rules.cooldownMinutes]);
   const [sort, setSort] = useState<Sort>(() => (remembered(SORT_KEY) === "room" ? "room" : "regulars"));
   const sortLabel = `Sorted by ${sort === "regulars" ? "most frequent" : "room"}. Tap to sort by ${sort === "regulars" ? "room" : "most frequent"}.`;
   const toggleSort = () => {
@@ -629,7 +653,11 @@ function ResidentStep({ roster, loading, counts, regulars, regularsDays, limit, 
         <ul className="divide-y divide-hairline border-y border-hairline md:mx-0 md:grid md:grid-cols-2 md:gap-3 md:divide-y-0 md:border-0 xl:grid-cols-3">
           {shown.slice(0, 300).map((t) => {
             const n = counts[t.id] ?? 0;
-            const over = n >= limit;
+            // The badge speaks for the shift's meal: its count against the
+            // per-type limit, or the time left on a shelter cooldown.
+            const times = meals[t.id]?.[meal.id] ?? [];
+            const over = times.length >= rules.limit;
+            const wait = over ? 0 : cooldownLeft(rules, times, now);
             const freq = regulars[t.id] ?? 0;
             return (
               <li key={t.id}>
@@ -655,8 +683,11 @@ function ResidentStep({ roster, loading, counts, regulars, regularsDays, limit, 
                     </span>
                   </span>
                   {n > 0 && (
-                    <span className={cn("shrink-0 rounded-pill px-2.5 py-1 text-[12px] font-bold tabular", over ? "bg-status-amberBg text-status-amberText" : "bg-status-greenBg text-status-greenText")}>
-                      {over ? `Served ${n}×` : `${n} of ${limit}`}
+                    <span
+                      className={cn("shrink-0 rounded-pill px-2.5 py-1 text-[12px] font-bold tabular", over || wait ? "bg-status-amberBg text-status-amberText" : "bg-status-greenBg text-status-greenText")}
+                      title={wait ? `Cooldown: ${minutes(wait)} left before another ${meal.name}` : undefined}
+                    >
+                      {over ? `${times.length} of ${rules.limit}` : wait ? `Wait ${minutes(wait)}` : times.length ? `${times.length} of ${rules.limit}` : "Served"}
                     </span>
                   )}
                   <ChevronRight className="h-5 w-5 shrink-0 text-muted md:hidden" />
@@ -678,12 +709,14 @@ function ResidentStep({ roster, loading, counts, regulars, regularsDays, limit, 
  * screen the details sit left and a large signature pad right, ready to turn
  * toward the resident.
  */
-function SignStep({ tenant, items, defaultMeal, servedToday, limit, onSave }: {
+function SignStep({ tenant, items, defaultMeal, servedToday, served, rules, onSave }: {
   tenant: Tenant;
   items: HotFoodItem[];
   defaultMeal: HotFoodItem;
   servedToday: number;
-  limit: number;
+  /** Their meals today by type, as of being picked. */
+  served: Served;
+  rules: Rules;
   onSave: (cart: Cart, signature: string, notes: string, overrideReason: string) => Promise<void>;
 }) {
   const padRef = useRef<SignaturePadHandle>(null);
@@ -694,7 +727,8 @@ function SignStep({ tenant, items, defaultMeal, servedToday, limit, onSave }: {
   const [reason, setReason] = useState("");
   const [empty, setEmpty] = useState(true);
   const [saving, setSaving] = useState(false);
-  const overLimit = servedToday >= limit;
+  const problems = ruleProblems(rules, served, cart, items);
+  const overLimit = problems.length > 0;
   const first = tenant.preferredName || tenant.firstName || tenant.displayName;
   const lines = items.filter((i) => cart[i.id]);
   const mealCount = lines.reduce((n, i) => n + cart[i.id], 0);
@@ -743,8 +777,13 @@ function SignStep({ tenant, items, defaultMeal, servedToday, limit, onSave }: {
           <div className="rounded-card border border-status-amberDot/40 bg-status-amberBg px-3.5 py-3 text-status-amberText">
             <p className="flex items-start gap-2 text-[14px] font-semibold">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              {first} already had {servedToday === 1 ? "a meal" : `${servedToday} meals`} today. The limit here is {limit}. Pick a reason:
+              {problems.length === 1 ? `${problems[0].text}.` : `${first} is past the rules here:`} Pick a reason:
             </p>
+            {problems.length > 1 && (
+              <ul className="mt-1.5 list-disc space-y-0.5 pl-10 text-[13.5px]">
+                {problems.map((p) => <li key={p.itemId}>{p.text}</li>)}
+              </ul>
+            )}
             <div className="mt-2.5 flex flex-wrap gap-2">
               {OVER_LIMIT_REASONS.map((r) => (
                 <button
@@ -796,11 +835,17 @@ function SignStep({ tenant, items, defaultMeal, servedToday, limit, onSave }: {
                 {editing ? "Done" : `Different or extra meal for ${first}`} <ChevronDown className={cn("h-4 w-4 transition-transform", editing && "rotate-180")} />
               </button>
             )}
-            {!noteOpen && (
-              <button type="button" onClick={() => setNoteOpen(true)} className="flex min-h-[44px] items-center gap-1 text-[14px] font-semibold text-accent dark:text-white">
-                <Plus className="h-4 w-4" /> Note
-              </button>
-            )}
+            {/* Closing clears the text too: a note backed out of isn't saved. */}
+            <button
+              type="button"
+              onClick={() => {
+                if (noteOpen) setNotes("");
+                setNoteOpen(!noteOpen);
+              }}
+              className="flex min-h-[44px] items-center gap-1 text-[14px] font-semibold text-accent dark:text-white"
+            >
+              {noteOpen ? <><X className="h-4 w-4" /> Remove note</> : <><Plus className="h-4 w-4" /> Note</>}
+            </button>
           </div>
           {noteOpen && <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={500} placeholder="Note (optional)" className="mt-1 min-h-[64px] text-[15px]" autoFocus />}
         </div>

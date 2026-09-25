@@ -9,7 +9,7 @@ import { ADMIN_AREA, useAuth } from "@/lib/auth";
 import { usePrefs } from "@/lib/prefs";
 import { Avatar } from "@/components/ui/avatar";
 import { useForms, useSites } from "@/lib/queries";
-import { canOpenForm, formIcon, isInternalForm } from "@/lib/formIcons";
+import { canOpenForm, formIcon, formLinkIcon, isInternalForm } from "@/lib/formIcons";
 import type { FormCategory, FormLink } from "@/lib/types";
 import { ThemedLogo } from "@/components/shell/ThemedLogo";
 import { useMediaQuery } from "@/lib/useMediaQuery";
@@ -59,10 +59,24 @@ function SectionLabel({ label, collapsed }: { label: string; collapsed: boolean 
   );
 }
 
-const itemClass = (active: boolean) =>
+/*
+ * Open, the highlight fills the row. Collapsed, the row runs on past the
+ * sidebar's edge (see TAIL_W), so a row highlight would be cut off square on
+ * the right; it moves onto the icon's own square instead (iconBox), rounded
+ * all round.
+ */
+const itemClass = (active: boolean, collapsed = false) =>
   cn(
-    "flex h-10 w-full shrink-0 items-center overflow-hidden rounded-input text-[13.5px] font-semibold transition-colors",
-    active ? "bg-navsel text-accent dark:text-white" : "text-muted hover:bg-navsel/60 hover:text-ink"
+    "group/item flex h-10 w-full shrink-0 items-center overflow-hidden rounded-input text-[13.5px] font-semibold transition-colors",
+    collapsed
+      ? active ? "text-accent dark:text-white" : "text-muted hover:text-ink"
+      : active ? "bg-navsel text-accent dark:text-white" : "text-muted hover:bg-navsel/60 hover:text-ink"
+  );
+
+const iconBox = (active: boolean, collapsed: boolean) =>
+  cn(
+    "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-input transition-colors",
+    collapsed && (active ? "bg-navsel" : "group-hover/item:bg-navsel/60")
   );
 
 function NavItem({ to, label, Icon, collapsed, alsoActiveFor, count, end }: {
@@ -79,8 +93,10 @@ function NavItem({ to, label, Icon, collapsed, alsoActiveFor, count, end }: {
   const alsoActive = alsoActiveFor?.some((p) => pathname.startsWith(p)) ?? false;
   const waiting = (count ?? 0) > 0;
   return (
-    <NavLink to={to} end={end} title={collapsed ? label : undefined} className={({ isActive }) => itemClass(isActive || alsoActive)}>
-      <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
+    <NavLink to={to} end={end} title={collapsed ? label : undefined} className={({ isActive }) => itemClass(isActive || alsoActive, collapsed)}>
+      {({ isActive }) => (
+      <>
+      <span className={iconBox(isActive || alsoActive, collapsed)}>
         <Icon className="h-[18px] w-[18px]" />
         {waiting && (
           <span className={cn("absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-status-amberDot transition-opacity duration-200", collapsed ? "opacity-100" : "opacity-0")} />
@@ -94,6 +110,8 @@ function NavItem({ to, label, Icon, collapsed, alsoActiveFor, count, end }: {
           </span>
         )}
       </span>
+      </>
+      )}
     </NavLink>
   );
 }
@@ -119,15 +137,13 @@ function useDrill() {
 }
 
 /**
- * One form type on the top level. Open sidebar: a row that drills into the
- * type's forms. Collapsed: just the icon, which opens the sidebar straight
- * into that type.
+ * One form type on the top level: a row (open) or its icon (collapsed) that
+ * drills into the type's forms, which then show the same way.
  */
-function TypeRow({ category, Icon, collapsed, lit, onOpen, buttonRef }: {
+function TypeRow({ category, Icon, collapsed, onOpen, buttonRef }: {
   category: FormCategory;
   Icon: React.ElementType;
   collapsed: boolean;
-  lit: boolean;
   onOpen: () => void;
   buttonRef: (el: HTMLButtonElement | null) => void;
 }) {
@@ -141,70 +157,104 @@ function TypeRow({ category, Icon, collapsed, lit, onOpen, buttonRef }: {
       // Tenant Serv…" loses the half that tells the types apart. Collapsed,
       // max-height clamps the row back to one icon's height.
       className={cn(
-        itemClass(lit),
+        itemClass(false, collapsed),
         "h-auto min-h-10 items-start transition-[max-height,background-color,color] duration-[240ms] motion-reduce:transition-none",
         EASE,
         collapsed ? "max-h-10" : "max-h-[72px]"
       )}
     >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center"><Icon className="h-[18px] w-[18px]" /></span>
+      <span className={iconBox(false, collapsed)}><Icon className="h-[18px] w-[18px]" /></span>
       <span className={cn("w-[149px] shrink-0 py-[11px] text-left leading-[18px]", fade(collapsed))}>{category.name}</span>
       <span className={cn("flex h-10 w-5 shrink-0 items-center justify-center", fade(collapsed))}><ChevronRight className="h-4 w-4" /></span>
     </button>
   );
 }
 
-/** The second level: one type's forms, with the way back up. */
-function TypePane({ category, Icon, forms, reviewCount, onBack, backRef }: {
+/**
+ * The second level: one type's forms, with the way back up. Built on the same
+ * 40px icon column as the top level, so collapsed it's a column of the forms'
+ * own icons under a back arrow, and the form you're in stays lit.
+ */
+function TypePane({ category, Icon, forms, reviewCount, collapsed, onBack, backRef }: {
   category: FormCategory;
   Icon: React.ElementType;
   forms: FormCategory["forms"];
   /** Shown on the Roster link: people waiting in its review queue. */
   reviewCount: number;
+  collapsed: boolean;
   onBack: () => void;
   backRef: React.Ref<HTMLButtonElement>;
 }) {
   const { pathname } = useLocation();
-  const linkClass = "flex items-start gap-2 rounded-input px-2.5 py-[9px] text-[13.5px] font-medium leading-snug transition-colors";
+  // Long form names wrap rather than truncate ("Metro Card Reconciliation Form
+  // (Reports)" cut to "Metro Card Reco…" is useless); collapsed, max-height
+  // clamps each row back to one icon's height.
+  const rowClass = (active: boolean) =>
+    cn(
+      itemClass(active, collapsed),
+      "h-auto min-h-10 items-start font-medium transition-[max-height,background-color,color] duration-[240ms] motion-reduce:transition-none",
+      EASE,
+      active && "font-semibold",
+      collapsed ? "max-h-10" : "max-h-[96px]"
+    );
+  const label = "w-[169px] shrink-0 py-[11px] pr-2 text-left leading-[18px]";
+  const lit = (url: string) => pathname === url || pathname.startsWith(`${url}/`) || (url === "/roster" && isRosterPath(pathname));
   return (
     <div className="w-[209px] shrink-0">
-      <button ref={backRef} type="button" onClick={onBack} className={itemClass(false)}>
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center"><ChevronLeft className="h-4 w-4" /></span>
-        <span className="whitespace-nowrap">All form types</span>
+      <button ref={backRef} type="button" onClick={onBack} title={collapsed ? "All form types" : undefined} aria-label="All form types" className={itemClass(false, collapsed)}>
+        <span className={iconBox(false, collapsed)}><ChevronLeft className="h-[18px] w-[18px]" /></span>
+        <span className={cn("whitespace-nowrap", fade(collapsed))}>All form types</span>
       </button>
-      <div className="mb-1 flex items-start border-b border-hairline pb-3 pt-1 text-ink dark:text-white">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center"><Icon className="h-[18px] w-[18px]" /></span>
-        <h2 className="min-w-0 flex-1 pr-2 pt-2.5 font-heading text-[15px] font-extrabold leading-5">{category.name}</h2>
+      <div className="mb-1 flex items-start border-b border-hairline pb-2 pt-1 text-ink dark:text-white" title={collapsed ? category.name : undefined}>
+        <span className="relative flex h-10 w-10 shrink-0 items-center justify-center">
+          <Icon className="h-[18px] w-[18px]" />
+          {/* Collapsed, the name is hidden: an underline marks this icon as the
+              heading of the icons below, not one more link. */}
+          <span className={cn("absolute bottom-0.5 left-1/2 h-[2px] w-5 -translate-x-1/2 rounded-pill bg-current transition-opacity duration-200", collapsed ? "opacity-100" : "opacity-0")} />
+        </span>
+        <h2 className={cn("min-w-0 flex-1 pr-2 pt-2.5 font-heading text-[15px] font-extrabold leading-5", fade(collapsed))}>{category.name}</h2>
       </div>
       <ul className="space-y-px pb-2">
-        {forms.map((f) => (
-          <li key={f.id}>
-            {/* Long form names wrap rather than truncate: "Metro Card
-                Reconciliation Form (Reports)" cut to "Metro Card Reco…" is useless. */}
-            {isInternalForm(f.url) ? (
-              <NavLink
-                to={f.url}
-                end
-                // The Roster link is the roster's only way in from the sidebar,
-                // so it stays lit on every roster tab and resident page; a
-                // rebuilt form stays lit on its own tabs (/forms/hot-foods/…).
-                className={({ isActive }) => cn(linkClass, isActive || (f.url === "/roster" && isRosterPath(pathname)) || pathname.startsWith(`${f.url}/`) ? "bg-navsel font-semibold text-accent dark:text-white" : "text-muted hover:bg-navsel/60 hover:text-ink")}
-              >
-                <span className="min-w-0 flex-1">{f.title}</span>
-                {f.url === "/roster" && reviewCount > 0 && (
-                  <span aria-label={`${reviewCount} to review`} className="shrink-0 rounded-pill bg-status-amberBg px-1.5 py-0.5 text-micro font-bold tabular text-status-amberText">
-                    {reviewCount > 999 ? "999+" : reviewCount}
+        {forms.map((f) => {
+          const FormIcon = formLinkIcon(f, category.icon || "folder");
+          const waiting = f.url === "/roster" && reviewCount > 0;
+          return (
+            <li key={f.id}>
+              {isInternalForm(f.url) ? (
+                <NavLink
+                  to={f.url}
+                  end
+                  title={collapsed ? f.title : undefined}
+                  // The Roster link is the roster's only way in from the sidebar,
+                  // so it stays lit on every roster tab and resident page; a
+                  // rebuilt form stays lit on its own tabs (/forms/hot-foods/…).
+                  className={rowClass(lit(f.url))}
+                >
+                  <span className={iconBox(lit(f.url), collapsed)}>
+                    <FormIcon className="h-[18px] w-[18px]" />
+                    {waiting && <span className={cn("absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-status-amberDot transition-opacity duration-200", collapsed ? "opacity-100" : "opacity-0")} />}
                   </span>
-                )}
-              </NavLink>
-            ) : (
-              <a href={f.url} target="_blank" rel="noopener noreferrer" title={`${f.title} (opens in a new tab)`} className={cn(linkClass, "group/link text-muted hover:bg-navsel/60 hover:text-ink")}>
-                <span className="min-w-0 flex-1">{f.title}</span>
-                <ExternalLink className="mt-1 h-3 w-3 shrink-0 opacity-50 group-hover/link:opacity-100" aria-hidden />
-              </a>
-            )}
-          </li>
-        ))}
+                  <span className={cn(label, "flex items-start gap-2", fade(collapsed))}>
+                    <span className="min-w-0 flex-1">{f.title}</span>
+                    {waiting && (
+                      <span aria-label={`${reviewCount} to review`} className="shrink-0 rounded-pill bg-status-amberBg px-1.5 py-0.5 text-micro font-bold tabular text-status-amberText">
+                        {reviewCount > 999 ? "999+" : reviewCount}
+                      </span>
+                    )}
+                  </span>
+                </NavLink>
+              ) : (
+                <a href={f.url} target="_blank" rel="noopener noreferrer" title={`${f.title} (opens in a new tab)`} className={cn(rowClass(false), "group/link")}>
+                  <span className={iconBox(false, collapsed)}><FormIcon className="h-[18px] w-[18px]" /></span>
+                  <span className={cn(label, "flex items-start gap-2", fade(collapsed))}>
+                    <span className="min-w-0 flex-1">{f.title}</span>
+                    <ExternalLink className="mt-1 h-3 w-3 shrink-0 opacity-50 group-hover/link:opacity-100" aria-hidden />
+                  </span>
+                </a>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -261,7 +311,22 @@ export function Sidebar() {
     ? [{ category: { id: FAVORITES_ID, name: "Favorites", icon: "", sortOrder: -1, forms: favoriteForms }, Icon: Star, forms: favoriteForms }, ...categoryTypes]
     : categoryTypes;
   const shownType = types.find((t) => t.category.id === shown);
-  const drilled = !collapsed && !!drill && types.some((t) => t.category.id === drill);
+  const drilled = !!drill && types.some((t) => t.category.id === drill);
+
+  // Inside a form, the sidebar shows that form's type, so the forms next to it
+  // are one tap away (and, collapsed, it's their icons rather than the types').
+  // A type already showing the form (Favorites, say) is left alone.
+  const { pathname } = useLocation();
+  const inType = (t: (typeof types)[number]) =>
+    t.forms.some((f) => isInternalForm(f.url) && (pathname === f.url || pathname.startsWith(`${f.url}/`) || (f.url === "/roster" && isRosterPath(pathname))));
+  const hereType = isFormPath(pathname) ? categoryTypes.find(inType) : undefined;
+  // On arriving at a form only (a new path, or the catalog loading), so the
+  // back arrow still takes you up to the types while you stay in the form.
+  useEffect(() => {
+    if (!hereType || types.some((t) => t.category.id === drill && inType(t))) return;
+    setShown(hereType.category.id);
+    setDrill(hereType.category.id);
+  }, [pathname, hereType?.category.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Focus follows the slide, so a keyboard user lands on Back after drilling
   // in and on the type they came from after going back.
@@ -282,7 +347,6 @@ export function Sidebar() {
     pendingFocus.current = "back";
     setShown(id);
     setDrill(id);
-    if (collapsed) toggleCollapsed();
   };
   const goBack = () => {
     pendingFocus.current = drill;
@@ -330,8 +394,6 @@ export function Sidebar() {
                 category={category}
                 Icon={Icon}
                 collapsed={collapsed}
-                // Collapsed while drilled in: mark the type that expanding returns to.
-                lit={collapsed && drill === category.id}
                 onOpen={() => openType(category.id)}
                 buttonRef={(el) => {
                   if (el) rowRefs.current.set(category.id, el);
@@ -349,7 +411,7 @@ export function Sidebar() {
           </div>
 
           <div inert={!drilled} className="h-full w-1/2 overflow-y-auto overflow-x-hidden px-1 scroll-thin">
-            {shownType && <TypePane category={shownType.category} Icon={shownType.Icon} forms={shownType.forms} reviewCount={reviewCount} onBack={goBack} backRef={backRef} />}
+            {shownType && <TypePane category={shownType.category} Icon={shownType.Icon} forms={shownType.forms} reviewCount={reviewCount} collapsed={collapsed} onBack={goBack} backRef={backRef} />}
           </div>
         </div>
       </nav>

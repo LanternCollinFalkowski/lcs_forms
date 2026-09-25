@@ -8,8 +8,10 @@ import { displayName, recordActivity } from "../services/roster.js";
 import { actorOf, audit } from "../services/audit.js";
 import { scopeLabel } from "../services/exportCommon.js";
 import {
-  buildReport, COLOR_SLOTS, dailyLimitFor, nextFreeColorSlot, loadAllEntries, loadEntries, loadEntryDetail, parseFilter, regularCounts, REGULARS_DAYS, todayCounts,
+  buildReport, COLOR_SLOTS, hotFoodSettings, nextFreeColorSlot, loadAllEntries, loadEntries, loadEntryDetail, parseFilter, regularCounts, REGULARS_DAYS,
+  ruleProblems, rulesFor, todayCounts, todayMeals,
 } from "../services/hotFoods.js";
+import { setSetting } from "../services/settings.js";
 import {
   entriesCsv, entriesPdf, entriesXlsx, entryPdf, filename, reportPdf, reportXlsx, type ExportMeta,
 } from "../services/hotFoodsExport.js";
@@ -105,20 +107,62 @@ hotFoodsRouter.post(
   })
 );
 
+// ── Form settings (Admin → Hot Foods) ────────────────────────────────────
+
+/** The limits. Which sites are shelters is each site's type, set in Admin → Sites. */
+hotFoodsRouter.get(
+  "/config",
+  requirePermission("forms.manage"),
+  asyncHandler(async (_req, res) => {
+    res.json(await hotFoodSettings());
+  })
+);
+
+hotFoodsRouter.patch(
+  "/config",
+  requirePermission("forms.manage"),
+  asyncHandler(async (req, res) => {
+    const body = z
+      .object({
+        supportiveLimit: z.number().int().min(1, "At least 1 meal a day.").max(20).optional(),
+        shelterLimit: z.number().int().min(1, "At least 1 meal a day.").max(20).optional(),
+        cooldownMinutes: z.number().int().min(0).max(24 * 60).optional(),
+      })
+      .parse(req.body);
+    const before = await hotFoodSettings();
+    if (body.supportiveLimit !== undefined) await setSetting("hotFoodsLimitSupportive", String(body.supportiveLimit));
+    if (body.shelterLimit !== undefined) await setSetting("hotFoodsLimitShelter", String(body.shelterLimit));
+    if (body.cooldownMinutes !== undefined) await setSetting("hotFoodsCooldownMinutes", String(body.cooldownMinutes));
+    const after = await hotFoodSettings();
+    await audit({
+      actor: actorOf(req),
+      action: "hotfoods.settings_updated",
+      summary: `Hot Foods limits: supportive housing ${after.supportiveLimit}/day, shelters ${after.shelterLimit}/day with a ${after.cooldownMinutes}-minute cooldown (per meal type)`,
+      changes: Object.fromEntries(Object.keys(body).map((k) => [k, [before[k as keyof typeof before], after[k as keyof typeof after]]])),
+    });
+    res.json(after);
+  })
+);
+
 // ── Recording ────────────────────────────────────────────────────────────
 
-/** Today's count per resident at a site, and the site's daily limit. */
+/**
+ * Today at a site: entries per resident (the served badges), every meal by
+ * type with its time (the per-type limit and cooldown), and the site's rules.
+ */
 hotFoodsRouter.get(
   "/today",
   requirePermission(RECORD),
   asyncHandler(async (req, res) => {
     const site = await resolveSite(req, req.query.site);
     if (!site) throw badRequest("Choose a site.");
-    const [counts, regulars] = await Promise.all([todayCounts(site.id), regularCounts(site.id)]);
+    const [counts, meals, regulars, rules] = await Promise.all([todayCounts(site.id), todayMeals(site.id), regularCounts(site.id), rulesFor(site)]);
     res.json({
-      limit: dailyLimitFor(site),
+      limit: rules.limit,
+      cooldownMinutes: rules.cooldownMinutes,
       isShelter: site.siteType === "shelter",
       counts: Object.fromEntries(counts),
+      meals: Object.fromEntries([...meals].map(([tenantId, byItem]) => [tenantId, Object.fromEntries(byItem)])),
       regulars: Object.fromEntries(regulars),
       regularsDays: REGULARS_DAYS,
     });
@@ -161,7 +205,8 @@ hotFoodsRouter.post(
     const body = createBody.parse(req.body);
     const site = await resolveSite(req, body.site);
     if (!site) throw badRequest("Choose a site.");
-    const limit = dailyLimitFor(site);
+    const rules = await rulesFor(site);
+    const limit = rules.limit;
 
     // A retried upload: hand back what the first attempt recorded.
     if (body.clientId) {
@@ -191,17 +236,22 @@ hotFoodsRouter.post(
     if (items.length !== ids.length) throw badRequest("One of those items is no longer offered. Refresh and try again.");
     const itemById = new Map(items.map((i) => [i.id, i]));
 
-    // The daily limit: over it is allowed, but only with a reason on record.
-    // An entry from the device's queue has already been signed and handed
-    // over (another device, or one that was offline, served them first), so
-    // it's recorded with a flag rather than refused.
-    const already = (await todayCounts(site.id, [tenant.id], occurredAt)).get(tenant.id) ?? 0;
+    // The per-type daily limit and the shelter cooldown: breaking either is
+    // allowed, but only with a reason on record. An entry from the device's
+    // queue has already been signed and handed over (another device, or one
+    // that was offline, served them first), so it's recorded with a flag
+    // rather than refused.
+    const [already, meals] = await Promise.all([
+      todayCounts(site.id, [tenant.id], occurredAt).then((m) => m.get(tenant.id) ?? 0),
+      todayMeals(site.id, [tenant.id], occurredAt),
+    ]);
+    const problems = ruleProblems(rules, meals.get(tenant.id), body.items.map((i) => ({ itemId: i.itemId, name: itemById.get(i.itemId)!.name, quantity: i.quantity })), occurredAt);
     let overrideReason = body.overrideReason || null;
-    if (already >= limit && !overrideReason) {
+    if (problems.length && !overrideReason) {
       if (!body.clientId) {
-        throw new HttpError(409, `${displayName(tenant)} has already been served ${already} time${already === 1 ? "" : "s"} today (limit ${limit}). Add an override reason to record another.`, { code: "limit", count: already, limit });
+        throw new HttpError(409, `${displayName(tenant)} needs an override reason: ${problems.join("; ")}.`, { code: "limit", problems, limit });
       }
-      overrideReason = `No reason given: already served ${already}× that day when this entry uploaded (limit ${limit}). Review.`;
+      overrideReason = `No reason given: ${problems.join("; ")} when this entry uploaded. Review.`;
     }
 
     const entry = await prisma.hotFoodEntry.create({
@@ -212,7 +262,7 @@ hotFoodsRouter.post(
         unit: tenant.unit,
         mealCount: body.items.reduce((n, i) => n + i.quantity, 0),
         notes: body.notes || null,
-        overrideReason: already >= limit ? overrideReason : null,
+        overrideReason: problems.length ? overrideReason : null,
         signature: body.signature,
         occurredAt,
         clientId: body.clientId ?? null,

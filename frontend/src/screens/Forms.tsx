@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { EmptyState, LoadingState } from "@/components/ui/misc";
 import { useToast } from "@/components/ui/toast";
 import { useAuth } from "@/lib/auth";
-import { canOpenForm, formIcon, formNeeds, isInternalForm } from "@/lib/formIcons";
+import { canOpenForm, formIcon, formLinkIcon, formNeeds, isInternalForm } from "@/lib/formIcons";
 import { formsApi, useForms } from "@/lib/queries";
 import type { FormCatalog, FormCategory, FormLink } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -209,7 +209,7 @@ function FormCard({ form, category, favorite, onToggleFavorite }: {
   const { can } = useAuth();
   const internal = isInternalForm(form.url);
   const locked = !canOpenForm(form.url, can);
-  const Icon = formIcon(category.icon);
+  const Icon = formLinkIcon(form, category.icon);
 
   const body = (
     <>

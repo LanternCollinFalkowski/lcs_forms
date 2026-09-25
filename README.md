@@ -48,10 +48,12 @@ Replaces the WordPress **Hot Foods Form** (Gravity Forms form 21). One sidebar e
 | **Entries** (`/forms/hot-foods/entries`) | `entries.view` (not Site Staff) | Filter by sites, dates and search; Print and Export (CSV, Excel, PDF) of exactly what's shown. Each entry opens with its signature, a printable receipt, and **Void** (`entries.void`: Admin, Site Admin, Site Manager). |
 | **Reports** (`/forms/hot-foods/reports`) | `entries.view` | Meals served, residents, meals per day, by site, by meal type, a weekday × hour grid and entries by staff member. Print, or export as a **PDF report** (charts drawn in) or an **Excel workbook** (one sheet per breakdown). |
 
-- **Daily limit.** Same rule as the WordPress "LCS Duplicate Tenant Check" plugin: a resident may be
-  served once a day at a site, three times at a shelter (a site whose type is **shelter** in
-  Admin → Sites). Going over is allowed with a reason, which is stored and counted in Reports. The
-  numbers are `DAILY_LIMIT` in `backend/src/services/hotFoods.ts`. Days are New York calendar days.
+- **Daily limit, per meal type.** At supportive housing a resident gets 1 meal of each meal type a
+  day; at a shelter 3, with a 60-minute cooldown between two meals of the same type. Going over
+  either is allowed with a reason, which is stored and counted in Reports. The numbers, the meal
+  types and which sites are shelters are all set in **Admin → Hot Foods**. The check lives in
+  `ruleProblems` (backend `services/hotFoods.ts`, mirrored in frontend `lib/hotFoodRules.ts`, so
+  staff are asked for a reason before Save). Days are New York calendar days.
 - **Nothing is edited or deleted.** A mistake is voided with a reason; voided entries stop counting
   toward the limit and every report but stay on record (Entries → Status → Voided).
 - **Report colors mean something.** Each meal type has its own color (Manage meal types → Report

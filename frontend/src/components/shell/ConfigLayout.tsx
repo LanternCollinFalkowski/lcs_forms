@@ -11,7 +11,10 @@ import type { PermissionKey } from "@/lib/types";
 const GROUPS: { group: string; items: { to: string; label: string; key: string; needs: PermissionKey[] }[] }[] = [
   {
     group: "Forms",
-    items: [{ to: "/admin/forms", label: "Forms catalog", key: "forms", needs: ["forms.manage"] }],
+    items: [
+      { to: "/admin/forms", label: "Forms catalog", key: "forms", needs: ["forms.manage"] },
+      { to: "/admin/hot-foods", label: "Hot Foods", key: "hotFoods", needs: ["forms.manage"] },
+    ],
   },
   {
     group: "Organization",

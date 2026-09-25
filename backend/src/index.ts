@@ -1,6 +1,6 @@
 import { createApp } from "./app.js";
 import { devAuthEnabled, env, ssoConfigured } from "./env.js";
-import { ensureDefaultCatalog } from "./services/formCatalog.js";
+import { ensureDefaultCatalog, ensureFormIcons } from "./services/formCatalog.js";
 import { migrateLegacyRoles } from "./services/permissions.js";
 import { ensureDefaultHotFoodItems } from "./services/hotFoods.js";
 import { ensureSiteLocations } from "./services/siteLocations.js";
@@ -9,6 +9,8 @@ import { ensureSiteLocations } from "./services/siteLocations.js";
 // Logged, never fatal: the API is still worth serving without a catalog.
 ensureDefaultCatalog()
   .then((wrote) => wrote && console.log("  Forms catalog: wrote the default catalog."))
+  .then(() => ensureFormIcons())
+  .then((n) => n && console.log(`  Forms catalog: gave ${n} forms their default icons.`))
   .catch((err) => console.error("[forms] could not write the default catalog:", err));
 
 ensureDefaultHotFoodItems()

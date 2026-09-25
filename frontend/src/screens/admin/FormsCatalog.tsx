@@ -25,6 +25,8 @@ type FormDraft = {
   url: string;
   keywords: string;
   badge: string;
+  /** Null = the category's icon. */
+  icon: FormIconKey | null;
   active: boolean;
   /** Role keys that may see it; empty = everyone. */
   roles: string[];
@@ -86,6 +88,7 @@ export function AdminFormsCatalog() {
       url: form.url,
       keywords: form.keywords,
       badge: form.badge,
+      icon: form.icon,
       active: form.active,
       roles: form.roles,
     };
@@ -116,7 +119,7 @@ export function AdminFormsCatalog() {
   }
 
   const newForm = (categoryId: string) =>
-    setForm({ categoryId, title: "", description: "", url: "https://forms.lanterncommunity.org/", keywords: "", badge: "", active: true, roles: [] });
+    setForm({ categoryId, title: "", description: "", url: "https://forms.lanterncommunity.org/", keywords: "", badge: "", icon: null, active: true, roles: [] });
 
   if (isLoading) return <LoadingState />;
 
@@ -205,6 +208,7 @@ export function AdminFormsCatalog() {
                           url: f.url,
                           keywords: f.keywords ?? "",
                           badge: f.badge ?? "",
+                          icon: f.icon && f.icon in FORM_ICONS ? (f.icon as FormIconKey) : null,
                           active: f.active,
                           roles: f.roles,
                         })
@@ -247,6 +251,13 @@ export function AdminFormsCatalog() {
                 </Field>
                 <Field label="Search words" hint="Other words people might search for, separated by commas (e.g. an old form name).">
                   <Input value={form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} maxLength={255} />
+                </Field>
+                <Field label="Icon" hint="Shown on the card and in the collapsed sidebar. The dashed first choice uses the category's icon.">
+                  <IconPicker
+                    value={form.icon}
+                    onChange={(icon) => setForm({ ...form, icon })}
+                    inherit={formIcon(categories.find((c) => c.id === form.categoryId)?.icon ?? "folder")}
+                  />
                 </Field>
                 <Field label="Tag" hint="Optional. Shown on the card, e.g. “New” or “Password required”.">
                   <Input value={form.badge} onChange={(e) => setForm({ ...form, badge: e.target.value })} maxLength={30} className="max-w-[220px]" />
@@ -297,24 +308,7 @@ export function AdminFormsCatalog() {
                   <Input value={category.name} onChange={(e) => setCategory({ ...category, name: e.target.value })} maxLength={80} required autoFocus />
                 </Field>
                 <Field label="Icon">
-                  <div className="grid grid-cols-7 gap-1.5">
-                    {(Object.entries(FORM_ICONS) as [FormIconKey, (typeof FORM_ICONS)[FormIconKey]][]).map(([key, { label, Icon }]) => (
-                      <button
-                        key={key}
-                        type="button"
-                        title={label}
-                        aria-label={label}
-                        aria-pressed={category.icon === key}
-                        onClick={() => setCategory({ ...category, icon: key })}
-                        className={cn(
-                          "flex h-10 items-center justify-center rounded-input border transition-colors",
-                          category.icon === key ? "border-navy bg-navsel text-accent dark:text-white" : "border-hairline text-muted hover:bg-rowhover hover:text-ink"
-                        )}
-                      >
-                        <Icon className="h-[18px] w-[18px]" />
-                      </button>
-                    ))}
-                  </div>
+                  <IconPicker value={category.icon} onChange={(icon) => icon && setCategory({ ...category, icon })} />
                 </Field>
               </DialogBody>
               <DialogFooter>
@@ -372,5 +366,28 @@ function IconButton({ label, onClick, disabled, children }: { label: string; onC
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * The fixed icon set as a grid. With `inherit` (a form), the first choice is
+ * the category's icon, drawn dashed, which saves as null.
+ */
+function IconPicker({ value, onChange, inherit: Inherit }: { value: FormIconKey | null; onChange: (icon: FormIconKey | null) => void; inherit?: React.ElementType }) {
+  const cell = (on: boolean) =>
+    cn("flex h-10 items-center justify-center rounded-input border transition-colors", on ? "border-navy bg-navsel text-accent dark:text-white" : "border-hairline text-muted hover:bg-rowhover hover:text-ink");
+  return (
+    <div className="grid grid-cols-7 gap-1.5">
+      {Inherit && (
+        <button type="button" title="Category's icon" aria-label="Category's icon" aria-pressed={value === null} onClick={() => onChange(null)} className={cn(cell(value === null), "border-dashed")}>
+          <Inherit className="h-[18px] w-[18px] opacity-70" />
+        </button>
+      )}
+      {(Object.entries(FORM_ICONS) as [FormIconKey, (typeof FORM_ICONS)[FormIconKey]][]).map(([key, { label, Icon }]) => (
+        <button key={key} type="button" title={label} aria-label={label} aria-pressed={value === key} onClick={() => onChange(key)} className={cell(value === key)}>
+          <Icon className="h-[18px] w-[18px]" />
+        </button>
+      ))}
+    </div>
   );
 }

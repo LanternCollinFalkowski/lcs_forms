@@ -30,9 +30,9 @@ model Site {
   /// Unique in practice (enforced in code) — not a DB unique index, because
   /// SQL Server permits only one NULL in a unique index.
   entityName String?
-  /// "shelter" sites turn over fast; "supportive" housing is stable. Drives
-  /// nothing yet beyond display, but the attention threshold is likely to
-  /// differ by type, so it is recorded now.
+  /// "shelter" sites turn over fast; "supportive" housing is stable. Decides
+  /// the Hot Foods limits (shelters: more meals a day, with a cooldown; see
+  /// services/hotFoods.ts rulesFor). Anything but "shelter" follows supportive.
   siteType   String  @default("supportive")
   address    String?
   /// Where the building is (WGS84). Forms use it to pick the site a staff
@@ -315,6 +315,9 @@ model FormLink {
   keywords    String?
   /// Short tag shown on the card ("New", "Password required").
   badge       String?
+  /// Icon key (frontend lib/formIcons.ts), shown on the card and in the
+  /// collapsed sidebar. Null = the category's icon.
+  icon        String?
   sortOrder   Int          @default(0)
   /// Hidden from staff when false; admins still see it in the catalog editor.
   active      Boolean      @default(true)

@@ -172,6 +172,7 @@ CREATE TABLE [dbo].[FormLink] (
     [url] NVARCHAR(max) NOT NULL,
     [keywords] NVARCHAR(255),
     [badge] NVARCHAR(255),
+    [icon] NVARCHAR(255),
     [sortOrder] INT NOT NULL CONSTRAINT [FormLink_sortOrder_df] DEFAULT 0,
     [active] BIT NOT NULL CONSTRAINT [FormLink_active_df] DEFAULT 1,
     [roles] NVARCHAR(255),

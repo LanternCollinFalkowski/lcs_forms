@@ -5,6 +5,7 @@ import { badRequest, notFound } from "../http.js";
 import { canAccessSite } from "../auth/middleware.js";
 import { TZ } from "./exportCommon.js";
 import { sitesInScope, type ScopedSite } from "./siteScope.js";
+import { getAllSettings } from "./settings.js";
 
 /**
  * Hot Foods: a meal handed to a resident, signed for on the device. Replaces
@@ -13,13 +14,37 @@ import { sitesInScope, type ScopedSite } from "./siteScope.js";
  */
 
 /**
- * How many times one resident may be served per day at one site before an
- * override reason is required. Same numbers as the WordPress "LCS Duplicate
- * Tenant Check" plugin's settings for this form (site 1, shelter 3); a site
- * counts as a shelter when its type is "shelter" (Admin → Sites).
+ * What one resident may get at a site before an override reason is needed.
+ * Counted per meal type: `limit` meals of each type a day, and at a shelter
+ * `cooldownMinutes` between two meals of the same type. Over either is still
+ * allowed, with a reason on record. The numbers are Admin → Hot Foods
+ * settings; a site is a shelter when its type is "shelter", and anything else
+ * (supportive housing, "other") follows the supportive-housing limit.
  */
-export const DAILY_LIMIT = { site: 1, shelter: 3 } as const;
-export const dailyLimitFor = (site: Pick<ScopedSite, "siteType">) => (site.siteType === "shelter" ? DAILY_LIMIT.shelter : DAILY_LIMIT.site);
+export interface HotFoodRules {
+  limit: number;
+  /** 0 = no cooldown (supportive housing). */
+  cooldownMinutes: number;
+}
+
+const positiveInt = (raw: string, fallback: number) => {
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : fallback;
+};
+
+export async function hotFoodSettings() {
+  const s = await getAllSettings();
+  return {
+    supportiveLimit: Math.max(1, positiveInt(s.hotFoodsLimitSupportive, 1)),
+    shelterLimit: Math.max(1, positiveInt(s.hotFoodsLimitShelter, 3)),
+    cooldownMinutes: positiveInt(s.hotFoodsCooldownMinutes, 60),
+  };
+}
+
+export async function rulesFor(site: Pick<ScopedSite, "siteType">): Promise<HotFoodRules> {
+  const s = await hotFoodSettings();
+  return site.siteType === "shelter" ? { limit: s.shelterLimit, cooldownMinutes: s.cooldownMinutes } : { limit: s.supportiveLimit, cooldownMinutes: 0 };
+}
 
 /**
  * The meal types the WordPress form's hotfood.csv listed, written once into an
@@ -120,6 +145,67 @@ export async function todayCounts(siteId: string, tenantIds?: string[], at = new
     _count: { _all: true },
   });
   return new Map(rows.map((r) => [r.tenantId, r._count._all]));
+}
+
+/**
+ * Every meal each resident got at a site on the New York day `at` falls on,
+ * by meal type: tenantId → itemId → one timestamp per meal (an entry of 2
+ * adds two). What the per-type limit and the shelter cooldown are checked
+ * against.
+ */
+export async function todayMeals(siteId: string, tenantIds?: string[], at = new Date()) {
+  const key = dayKey(at);
+  const rows = await prisma.hotFoodEntryItem.findMany({
+    where: {
+      itemId: { not: null },
+      entry: { siteId, occurredAt: { gte: startOfDay(key), lt: startOfDay(addDays(key, 1)) }, voidedAt: null, ...(tenantIds ? { tenantId: { in: tenantIds } } : {}) },
+    },
+    select: { itemId: true, quantity: true, entry: { select: { tenantId: true, occurredAt: true } } },
+  });
+  const out = new Map<string, Map<string, number[]>>();
+  for (const r of rows) {
+    const byItem = out.get(r.entry.tenantId) ?? new Map<string, number[]>();
+    const times = byItem.get(r.itemId!) ?? [];
+    for (let i = 0; i < r.quantity; i++) times.push(r.entry.occurredAt.getTime());
+    byItem.set(r.itemId!, times);
+    out.set(r.entry.tenantId, byItem);
+  }
+  return out;
+}
+
+/**
+ * Why a meal needs an override reason, one line per rule it breaks, e.g.
+ * "Individual Meals: 3 today already (limit 3)". Empty = within the rules.
+ * The Record screen runs the same check (frontend lib/hotFoodRules.ts) so
+ * staff are asked for the reason before Save rather than after.
+ */
+export function ruleProblems(
+  rules: HotFoodRules,
+  served: Map<string, number[]> | undefined,
+  cart: { itemId: string; name: string; quantity: number }[],
+  at: Date
+): string[] {
+  const problems: string[] = [];
+  const window = rules.cooldownMinutes * 60_000;
+  for (const line of cart) {
+    const times = served?.get(line.itemId) ?? [];
+    if (times.length + line.quantity > rules.limit) {
+      problems.push(`${line.name}: ${times.length} today already (limit ${rules.limit} a day)`);
+      continue;
+    }
+    if (!window) continue;
+    // Either side of `at`: an entry queued offline can upload after one recorded later.
+    const near = times.filter((t) => Math.abs(at.getTime() - t) < window);
+    if (near.length || line.quantity > 1) {
+      const mins = near.length ? Math.max(1, Math.round(Math.min(...near.map((t) => Math.abs(at.getTime() - t))) / 60_000)) : 0;
+      problems.push(
+        near.length
+          ? `${line.name}: only ${mins} min since the last one (${rules.cooldownMinutes}-minute cooldown)`
+          : `${line.name}: ${line.quantity} at once (${rules.cooldownMinutes}-minute cooldown between meals)`
+      );
+    }
+  }
+  return problems;
 }
 
 /** How far back "regulars" look when ordering the Record list. */

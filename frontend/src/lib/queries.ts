@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import type {
-  ApiKeyRow, AttendanceDetail, AttendanceEvent, AuditEvent, DashboardData, FormCatalog, HotFoodEntryDetail, HotFoodEntryRow, HotFoodItem, HotFoodReport, HotFoodToday,
+  ApiKeyRow, AttendanceDetail, AttendanceEvent, AuditEvent, DashboardData, FormCatalog, HotFoodEntryDetail, HotFoodEntryRow, HotFoodConfig, HotFoodItem, HotFoodReport, HotFoodToday,
   ManagedUser, RoleSummary, Settings, Site, Tenant, TenantDetail, WebhookRow,
 } from "./types";
 
@@ -211,7 +211,12 @@ export const hotFoodsApi = {
   createItem: (body: { name: string; imageUrl?: string }) => api.post<HotFoodItem>("/hot-foods/items", body),
   updateItem: (id: string, body: Partial<Pick<HotFoodItem, "name" | "active" | "colorSlot">> & { imageUrl?: string }) => api.patch<HotFoodItem>(`/hot-foods/items/${id}`, body),
   reorderItems: (ids: string[]) => api.post("/hot-foods/items/reorder", { ids }),
+  updateConfig: (body: Partial<Pick<HotFoodConfig, "supportiveLimit" | "shelterLimit" | "cooldownMinutes">>) => api.patch<HotFoodConfig>("/hot-foods/config", body),
 };
+
+export function useHotFoodConfig(enabled = true) {
+  return useQuery({ queryKey: ["hotfoods", "config"], queryFn: () => api.get<HotFoodConfig>("/hot-foods/config"), enabled });
+}
 
 /** Every Hot Foods write invalidates the whole family: today's counts, lists and reports. */
 export function useHotFoodsMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>) {
